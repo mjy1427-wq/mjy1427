@@ -1,181 +1,119 @@
-import logging
-import time
-import random
-import os
+import logging, time, random, os
 from flask import Flask
 from threading import Thread
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import Updater, MessageHandler, Filters, CallbackQueryHandler
 
-# --- [1] Flask 서버 유지 설정 ---
+# --- [1] 서버 유지 설정 ---
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "G-Coin Bot is Online!"
+def home(): return "G-COIN BOT Online"
+def run(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+def keep_alive(): Thread(target=run).start()
 
-def run():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+# --- [2] 데이터 설정 ---
+# 수정됨: EJ1427 님을 관리자로 설정했습니다.
+ADMIN_ID = "EJ1427" 
 
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-# --- [2] 데이터 및 설정 ---
-user_data = {}
 ORES = {
-    "T1": {"name": "👑 전설의 핵", "price": 5000000, "chance": 1},
-    "T2": {"name": "💎 다이아몬드", "price": 1000000, "chance": 5},
-    "T3": {"name": "🥇 금광석", "price": 100000, "chance": 15},
-    "T4": {"name": "🥈 은광석", "price": 50000, "chance": 30},
-    "T5": {"name": "🪨 일반석", "price": 10000, "chance": 49}
+    "coal": {"name": "🌑 석탄", "price": 5000, "tier": 1, "chance": 25},
+    "iron": {"name": "🔘 철광석", "price": 10000, "tier": 1, "chance": 18},
+    "copper": {"name": "🟤 구리광석", "price": 15000, "tier": 1, "chance": 15},
+    "silver": {"name": "🥈 은광석", "price": 40000, "tier": 2, "chance": 10},
+    "gold": {"name": "🥇 금광석", "price": 80000, "tier": 2, "chance": 8},
+    "platinum": {"name": "⚪ 백금광석", "price": 150000, "tier": 2, "chance": 6},
+    "crystal": {"name": "🔮 수정", "price": 400000, "tier": 3, "chance": 5},
+    "emerald": {"name": "🧪 에메랄드", "price": 700000, "tier": 3, "chance": 4},
+    "sapphire": {"name": "🌌 사파이어", "price": 1000000, "tier": 3, "chance": 3},
+    "diamond": {"name": "💎 다이아몬드", "price": 2000000, "tier": 4, "chance": 2},
+    "ruby": {"name": "🍎 루비", "price": 3500000, "tier": 4, "chance": 1.5},
+    "obsidian": {"name": "🖤 흑요석", "price": 5000000, "tier": 4, "chance": 1},
+    "core": {"name": "👑 전설의 핵", "price": 10000000, "tier": 5, "chance": 0.8},
+    "dragon": {"name": "🐲 드래곤 스톤", "price": 25000000, "tier": 5, "chance": 0.2}
 }
 
-def get_user(user_id):
-    if user_id not in user_data:
-        user_data[user_id] = {
-            'money': 1000000,
-            'durability': 100,
-            'inventory': {k: 0 for k in ORES}
-        }
-    return user_data[user_id]
+PICKS = {
+    "Wood": {"price": 1000000, "durability": 100},
+    "Stone": {"price": 5000000, "durability": 300},
+    "Iron": {"price": 15000000, "durability": 500},
+    "Gold": {"price": 50000000, "durability": 1000},
+    "Diamond": {"price": 250000000, "durability": 5000},
+    "Netherite": {"price": 1000000000, "durability": 10000}
+}
 
-# --- [3] 메시지 처리 핸들러 ---
+user_data = {}
+ROADMAP_URL = "https://raw.githubusercontent.com/mjy1427-wq/mjy1427/main/roadmap.png"
+
+def get_user(uid):
+    if uid not in user_data:
+        user_data[uid] = {'money': 1000000, 'pick_name': 'Wood', 'durability': 100, 'max_durability': 100, 'inventory': {k: 0 for k in ORES.keys()}}
+    return user_data[uid]
+
+# --- [3] 메시지 핸들러 ---
 def handle_message(update, context):
-    user_id = update.message.from_user.username
-    if not user_id:
-        update.message.reply_text("❌ 텔레그램 아이디(@username)가 설정되어 있어야 합니다.")
+    uid = update.message.from_user.username
+    if not uid: return
+    user = get_user(uid); text = update.message.text
+
+    if text.startswith("!지급") and uid == ADMIN_ID:
+        try:
+            p = text.split(); target = p[1].replace("@", ""); amt = int(p[2])
+            get_user(target)['money'] += amt
+            update.message.reply_text(f"✅ @{target}님에게 {amt:,} G 지급 완료!")
+        except: update.message.reply_text("❌ 사용법: !지급 아이디 금액")
         return
 
-    user = get_user(user_id)
-    text = update.message.text
-
-    # 명령어 안내
-    if text == "!명령어":
-        msg = (
-            "━━━━━━━━━━━━━━\n"
-            "💰 **G-COIN BOT 명령어**\n"
-            "━━━━━━━━━━━━━━\n"
-            "⛏ `!채광` - 광석 캐기 (내구도 -5)\n"
-            "💰 `!내정보` - 잔액 및 보유 자산\n"
-            "🛒 `!상점` - 곡괭이 수리 및 아이템\n"
-            "🃏 `!플 [금액]` - 바카라 플레이어 승\n"
-            "🃏 `!뱅 [금액]` - 바카라 뱅커 승\n"
-            "🃏 `!타이 [금액]` - 바카라 타이 승\n"
-            "━━━━━━━━━━━━━━"
-        )
-        update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
-
-    # 내 정보
-    elif text == "!내정보":
-        msg = (
-            f"👤 **사용자**: @{user_id}\n"
-            f"💵 **보유 잔액**: {user['money']:,} G\n"
-            f"🛠 **곡괭이 내구도**: {user['durability']}%"
-        )
-        update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
-
-    # 채광 기능
+    if text == "!가입":
+        update.message.reply_text("🎊 가입 완료! 기본 Wood 곡괭이가 지급되었습니다.")
     elif text == "!채광":
-        if user['durability'] <= 0:
-            update.message.reply_text("🪓 곡괭이가 부서졌습니다! !상점에서 수리하세요.")
-            return
-        
-        user['durability'] -= 5
-        rand = random.random() * 100
-        current = 0
-        selected_ore = "T5"
-        
+        if user['durability'] <= 0: return update.message.reply_text("🪓 곡괭이 파손! 상점에서 구매하세요.")
+        user['durability'] -= 5; rand = random.random() * 100; curr = 0; sel = "coal"
         for k, v in ORES.items():
-            current += v['chance']
-            if rand <= current:
-                selected_ore = k
-                break
-        
-        user['inventory'][selected_ore] += 1
-        user['money'] += ORES[selected_ore]['price']
-        
-        update.message.reply_text(
-            f"⛏ **채광 성공!**\n"
-            f"💎 획득: {ORES[selected_ore]['name']}\n"
-            f"💰 판매가: {ORES[selected_ore]['price']:,} G 획득!\n"
-            f"📉 내구도: {user['durability']}% 남음"
-        )
-            # 바카라 기능 (플레이어, 뱅커, 타이)
-    elif any(text.startswith(x) for x in ["!플", "!뱅", "!타이"]):
-        try:
-            split_text = text.split()
-            if len(split_text) < 2:
-                return update.message.reply_text("❌ 사용법: !플 [금액]")
-            
-            bet_amount = int(split_text[1])
-            if bet_amount <= 0 or bet_amount > user['money']:
-                return update.message.reply_text("❌ 잔액이 부족하거나 잘못된 금액입니다.")
+            curr += v['chance']
+            if rand <= curr: sel = k; break
+        if ORES[sel]['tier'] == 5 and user['pick_name'] != "Netherite":
+            sel = "coal"; update.message.reply_text("⚠️ 5티어 발견! 하지만 곡괭이가 약해 석탄을 캤습니다.")
+        user['inventory'][sel] += 1
+        update.message.reply_text(f"⛏ **채광 성공!**\n💎 획득: {ORES[sel]['name']}\n🔧 내구도: {user['durability']}/{user['max_durability']}", parse_mode=ParseMode.MARKDOWN)
+    elif text == "!판매":
+        kb = [[InlineKeyboardButton(f"{i}티어", callback_data=f"s_{i}") for i in range(1, 5)], [InlineKeyboardButton("5티어", callback_data="s_5"), InlineKeyboardButton("전체판매", callback_data="s_all")]]
+        update.message.reply_text("💰 **판매 등급 선택**", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
+    elif text == "!곡괭이":
+        msg = "⛏ **상점**\n" + "\n".join([f"**{k}**: {v['price']:,} G" for k, v in PICKS.items()])
+        kb = [[InlineKeyboardButton(f"💰 {k} 구매", callback_data=f"buy_{k}")] for k in PICKS.keys()]
+        update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
+    elif text == "!내정보":
+        update.message.reply_text(f"👤 **@{uid}**\n💵 잔액: {user['money']:,} G\n⛏ 곡괭이: {user['pick_name']}\n🔧 내구도: {user['durability']}")
+    elif text == "!바카라":
+        update.message.reply_photo(photo=ROADMAP_URL, caption="📊 **바카라 출목표**")
 
-            # 카드 뽑기 (1~9)
-            p_card = random.randint(1, 9)
-            b_card = random.randint(1, 9)
-            
-            if p_card > b_card:
-                winner = "플레이어"
-            elif b_card > p_card:
-                winner = "뱅커"
-            else:
-                winner = "타이"
-
-            # 승패 확인
-            is_win = False
-            multiplier = 2
-            if text.startswith("!플") and winner == "플레이어":
-                is_win = True
-            elif text.startswith("!뱅") and winner == "뱅커":
-                is_win = True
-            elif text.startswith("!타이") and winner == "타이":
-                is_win = True
-                multiplier = 8
-
-            if is_win:
-                user['money'] += (bet_amount * (multiplier - 1))
-                update.message.reply_text(f"🎲 **결과: [{p_card} vs {b_card}] {winner} 승!**\n✅ 축하합니다! {bet_amount * multiplier:,} G를 획득했습니다!")
-            else:
-                user['money'] -= bet_amount
-                update.message.reply_text(f"🎲 **결과: [{p_card} vs {b_card}] {winner} 승!**\n❌ 아쉽네요. {bet_amount:,} G를 잃었습니다.")
-        except ValueError:
-            update.message.reply_text("❌ 금액은 숫자로 입력해주세요.")
-
-    # 상점 기능
-    elif text == "!상점":
-        keyboard = [[InlineKeyboardButton("🔧 곡괭이 전체 수리 (100,000 G)", callback_data='repair')]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text("🛒 **G-COIN 상점**\n수리하시겠습니까?", reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
-
-# --- [4] 콜백 핸들러 (버튼 처리) ---
+# --- [4] 콜백 핸들러 ---
 def handle_callback(update, context):
-    query = update.callback_query
-    user_id = query.from_user.username
-    user = get_user(user_id)
-
-    if query.data == 'repair':
-        if user['money'] >= 100000:
-            user['money'] -= 100000
-            user['durability'] = 100
-            query.answer("수리 완료!")
-            query.edit_message_text(f"✅ 수리가 완료되었습니다! (현재 잔액: {user['money']:,} G)")
+    q = update.callback_query; uid = q.from_user.username; user = get_user(uid)
+    if q.data.startswith("s_"):
+        gain = 0
+        if q.data == "s_all":
+            for k in ORES: gain += user['inventory'][k] * ORES[k]['price']; user['inventory'][k] = 0
         else:
-            query.answer("잔액 부족!", show_alert=True)
+            t = int(q.data.split("_")[1])
+            for k, v in ORES.items():
+                if v['tier'] == t: gain += user['inventory'][k] * v['price']; user['inventory'][k] = 0
+        user['money'] += gain; q.edit_message_text(f"✅ 판매 완료! +{gain:,} G\n현재 잔액: {user['money']:,} G")
+    elif q.data.startswith("buy_"):
+        pk = q.data.split("_")[1]; info = PICKS[pk]
+        if user['money'] >= info['price']:
+            user['money'] -= info['price']; user['pick_name'] = pk
+            user['durability'] = info['durability']; user['max_durability'] = info['durability']
+            q.edit_message_text(f"✅ {pk} 곡괭이 구매 성공!")
+        else: q.answer("❌ 잔액 부족!", show_alert=True)
+    q.answer()
 
 # --- [5] 메인 실행부 ---
 if __name__ == '__main__':
-    keep_alive()  # Flask 서버 시작
-    
+    keep_alive()
     TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc"
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
-
-    # 핸들러 등록
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
     dp.add_handler(CallbackQueryHandler(handle_callback))
-
-    print("Bot is running...")
-    updater.start_polling()
-    updater.idle()
+    updater.start_polling(); updater.idle()
