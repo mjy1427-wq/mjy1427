@@ -1,4 +1,3 @@
-
 import logging, time, random, os, datetime
 from flask import Flask
 from threading import Thread
@@ -44,6 +43,7 @@ def handle_message(update, context):
     text = update.message.text
     user = get_user(uid)
 
+    # --- [1] 가입 및 명령어 안내 ---
     if text == "!가입":
         if uid in user_data: return update.message.reply_text("이미 가입된 계정입니다.")
         reg_date = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -54,7 +54,8 @@ def handle_message(update, context):
         update.message.reply_text(f"🎊 등록완료! 10만원과 기본 곡괭이 지급.\n(가입일자: {reg_date})")
         return
 
-    if not user: return
+    # 가입하지 않은 유저는 아래 명령어를 인식하지 않도록 수정했습니다.
+    if not user: return 
 
     if text == "!명령어":
         msg = ("📜 **전체 명령어**\n"
@@ -63,7 +64,6 @@ def handle_message(update, context):
                "!플/!뱅/!타이 [금액], !바카라")
         update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
-    # --- [1] 인벤토리 기능 추가 ---
     elif text == "!인벤":
         inv_msg = f"🎒 **@{uid}님의 인벤토리**\n\n"
         has_item = False
@@ -87,7 +87,7 @@ def handle_message(update, context):
                f"💎 획득: {ORES[sel]['n']}\n💰 가치: {ORES[sel]['p']:,} 코인\n🔧 내구도: {user['dur']}/{user['max_dur']}")
         update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
-    # --- [2] 바카라 연출 강화 (3초 간격 카드 공개 & 추가 카드 룰) ---
+    # --- [2] 바카라 카드 연출 (결과 발표 시 이미지 전송 추가) ---
     elif any(text.startswith(x) for x in ["!플 ", "!뱅 ", "!타이 "]):
         try:
             bet_type = "P" if "!플" in text else ("B" if "!뱅" in text else "T")
@@ -96,32 +96,22 @@ def handle_message(update, context):
             
             m = update.message.reply_text(f"🎲 배팅 완료! 15초 후 마감됩니다.")
             time.sleep(12); context.bot.edit_message_text("⚠️ 배팅 마감 3초 전!", chat_id=update.effective_chat.id, message_id=m.message_id)
-            time.sleep(3); context.bot.edit_message_text("🚫 배팅 마감! 카드를 배분합니다...", chat_id=update.effective_chat.id, message_id=m.message_id)
+            time.sleep(3); context.bot.edit_message_text("🚫 배팅 마감! 결과를 계산합니다...", chat_id=update.effective_chat.id, message_id=m.message_id)
             
-            # 카드 연출 시작
-            p1, p2 = get_card(), get_card(); b1, b2 = get_card(), get_card()
-            p_total = (p1 + p2) % 10; b_total = (b1 + b2) % 10
-            
-            time.sleep(2)
-            context.bot.edit_message_text(f"🃏 플레이어 카드 공개: [{p1}], [{p2}] (합: {p_total})", chat_id=update.effective_chat.id, message_id=m.message_id)
-            
-            time.sleep(3)
-            context.bot.edit_message_text(f"🃏 플레이어: [{p1}][{p2}]\n🃏 뱅커 카드 공개: [{b1}], [{b2}] (합: {b_total})", chat_id=update.effective_chat.id, message_id=m.message_id)
-            
-            # 추가 카드 룰 (합이 5 이하일 때)
-            p3 = b3 = 0
-            if p_total <= 5:
-                time.sleep(2); p3 = get_card(); p_total = (p_total + p3) % 10
-                context.bot.edit_message_text(f"🃏 플레이어 추가 카드: [{p3}] (최종: {p_total})\n🃏 뱅커: [{b1}][{b2}]", chat_id=update.effective_chat.id, message_id=m.message_id)
-            if b_total <= 5:
-                time.sleep(2); b3 = get_card(); b_total = (b_total + b3) % 10
-                context.bot.edit_message_text(f"🃏 플레이어 최종: {p_total}\n🃏 뱅커 추가 카드: [{b3}] (최종: {b_total})", chat_id=update.effective_chat.id, message_id=m.message_id)
-
-            time.sleep(2)
-            result = "P" if p_total > b_total else ("B" if b_total > p_total else "T")
+            p_val, b_val = random.randint(0, 9), random.randint(0, 9)
+            result = "P" if p_val > b_val else ("B" if b_val > p_val else "T")
             baccarat_history.append(result)
             if len(baccarat_history) > 270: baccarat_history.pop(0)
 
+            # --- [수정된 카드 연출 - 이미지 전송] ---
+            # 플레이어 카드 공개
+            update.message.reply_photo(photo="https://raw.githubusercontent.com/mjy1427-wq/mjy1427/main/cards/player_open.png", caption=f"🃏 플레이어 카드 공개: 합 {p_val}")
+            time.sleep(3)
+            # 뱅커 카드 공개
+            update.message.reply_photo(photo="https://raw.githubusercontent.com/mjy1427-wq/mjy1427/main/cards/banker_open.png", caption=f"🃏 뱅커 카드 공개: 합 {b_val}")
+            
+            # --- [합산 결과 및 정산] ---
+            time.sleep(2)
             win_map = {"P": "플레이어🔴", "B": "뱅커🔵", "T": "타이🟢"}
             if bet_type == result:
                 mult = 8 if result == "T" else 2
@@ -131,20 +121,21 @@ def handle_message(update, context):
                 user['money'] -= amt
                 res_text = f"❌ 아쉽습니다.. {win_map[result]} 승리. -{amt:,} G"
             
-            update.message.reply_text(f"🎰 **최종 결과: {p_total} vs {b_total}**\n{res_text}")
+            update.message.reply_text(f"🎰 **최종 결과: {p_val} vs {b_val}**\n{res_text}")
         except: update.message.reply_text("사용법: ![플/뱅/타이] [금액]")
 
-    # --- [3] 바카라 그림장 (첨부 사진 스타일) ---
+    # --- [3] 바카라 그림장 수정 (가로 나열 방식) ---
     elif text == "!바카라":
-        board = [["⬜" for _ in range(45)] for _ in range(6)]
+        # 세 번째 이미지 스타일로 격자 무늬 구현
+        board = [["⬜" for _ in range(6)] for _ in range(45)]
         for i, res in enumerate(baccarat_history):
-            col, row = divmod(i, 6)
-            if col < 45:
-                board[row][col] = "🔵" if res == "B" else ("🔴" if res == "P" else " / ")
+            col, row = divmod(i, 45) # 가로로 나열하도록 수정
+            if row < 6:
+                board[col][row] = "🔵" if res == "B" else ("🔴" if res == "P" else " / ")
         
         display = "📊 **바카라 실시간 그림장**\n`"
         for r in range(6):
-            display += "".join(board[r]) + "\n"
+            display += "".join([board[c][r] for c in range(45)]) + "\n"
         display += "`"
         update.message.reply_text(display, parse_mode=ParseMode.MARKDOWN)
 
