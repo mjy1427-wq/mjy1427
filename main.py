@@ -1,50 +1,55 @@
 import os
 from flask import Flask
 from threading import Thread
+import random
+import datetime
+from telegram.ext import Updater, MessageHandler, Filters
 
-# Render의 포트 에러를 방지하기 위한 가짜 서버
+# 1. Render의 포트 에러를 방지하기 위한 웹 서버 설정
 app = Flask('')
+
 @app.route('/')
 def home():
     return "I am alive"
 
 def run():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+    # Render는 PORT 환경변수를 사용하므로 이를 맞춰줍니다.
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# 이 아래에 기존 봇 코드를 넣으세요
-# 예: keep_alive() 
-# bot.polling()
-
-import random
-import datetime
-from telegram.ext import Updater, MessageHandler, Filters
-
-TOKEN ="8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc"
-ADMIN = "EJ1427"
-
+# --- 데이터 저장용 변수 ---
 money = {}
 attendance = {}
+ADMIN = "EJ1427" # 관리자 아이디
 
+# --- 봇 기능 함수 ---
 def message(update, context):
+    if not update.message or not update.message.text:
+        return
+        
     text = update.message.text
     user = update.message.from_user.username
+
+    if not user:
+        update.message.reply_text("텔레그램 아이디(@username)를 설정해주세요!")
+        return
 
     # 가입
     if text.startswith("!가입"):
         if user not in money:
             money[user] = 1000000
-            update.message.reply_text("가입완료! 100만원 지급")
+            update.message.reply_text(f"@{user}님 가입완료! 100만원 지급")
         else:
-            update.message.reply_text("이미 가입됨")
+            update.message.reply_text("이미 가입되어 있습니다.")
 
-    # 내정보 (코인확인)
+    # 내정보
     elif text.startswith("!내정보"):
         coin = money.get(user, 0)
-        update.message.reply_text(f"보유코인: {coin}")
+        update.message.reply_text(f"@{user}님의 보유코인: {coin}")
 
     # 출석
     elif text.startswith("!출석"):
@@ -52,112 +57,92 @@ def message(update, context):
         if attendance.get(user) != today:
             attendance[user] = today
             money[user] = money.get(user, 0) + 100000
-            update.message.reply_text("출석완료 +100000")
+            update.message.reply_text("출석완료! +100,000코인")
         else:
-            update.message.reply_text("오늘 이미 출석함")
+            update.message.reply_text("오늘 이미 출석하셨습니다.")
 
     # 송금
     elif text.startswith("!송금"):
         try:
-            _, target, amount = text.split()
-            target = target.replace("@", "")
-            amount = int(amount)
+            parts = text.split()
+            target = parts[1].replace("@", "")
+            amount = int(parts[2])
+            
+            if money.get(user, 0) < amount:
+                update.message.reply_text("코인이 부족합니다.")
+                return
+
+            money[user] -= amount
+            money[target] = money.get(target, 0) + amount
+            update.message.reply_text(f"@{target}님에게 {amount}코인 송금 완료!")
         except:
-            update.message.reply_text("!송금 @아이디 10000")
-            return
-
-        if money.get(user, 0) < amount:
-            update.message.reply_text("코인 부족")
-            return
-
-        money[user] -= amount
-        money[target] = money.get(target, 0) + amount
-        update.message.reply_text("송금 완료")
+            update.message.reply_text("사용법: !송금 @아이디 10000")
 
     # 관리자 지급
     elif text.startswith("!관리자지급"):
         if user != ADMIN:
-            update.message.reply_text("관리자만 가능")
+            update.message.reply_text("관리자 전용 기능입니다.")
             return
-
         try:
-            _, target, amount = text.split()
-            target = target.replace("@", "")
-            amount = int(amount)
+            parts = text.split()
+            target = parts[1].replace("@", "")
+            amount = int(parts[2])
+            money[target] = money.get(target, 0) + amount
+            update.message.reply_text(f"관리자 권한으로 @{target}님에게 {amount}코인 지급 완료!")
         except:
-            update.message.reply_text("!관리자지급 @아이디 10000")
-            return
-
-        money[target] = money.get(target, 0) + amount
-        update.message.reply_text("관리자 지급 완료")
-
-    # 올인
-    elif text.startswith("!올인"):
-        bet = money.get(user, 0)
-
-        player = random.randint(0, 9)
-        banker = random.randint(0, 9)
-
-        if player > banker:
-            money[user] += bet
-            result = "승리"
-        elif banker > player:
-            money[user] = 0
-            result = "패배"
-        else:
-            result = "타이"
-
-        update.message.reply_text(
-            f"올인 결과\n플:{player} 뱅:{banker}\n{result}\n코인:{money[user]}"
-        )
-
-    # 랭킹
-    elif text.startswith("!랭킹"):
-        rank = sorted(money.items(), key=lambda x: x[1], reverse=True)
-        text_rank = "🏆 랭킹\n"
-        for i, (u, c) in enumerate(rank[:5]):
-            text_rank += f"{i+1}. {u} - {c}\n"
-        update.message.reply_text(text_rank)
+            update.message.reply_text("사용법: !관리자지급 @아이디 10000")
 
     # 바카라 배팅
     elif text.startswith("!배팅"):
         try:
-            _, choice, bet = text.split()
-            bet = int(bet)
-        except:
-            update.message.reply_text("!배팅 플 10000")
-            return
+            parts = text.split()
+            choice = parts[1] # 플, 뱅, 타이
+            bet = int(parts[2])
+            
+            if money.get(user, 0) < bet:
+                update.message.reply_text("코인이 부족합니다.")
+                return
 
-        if money.get(user, 0) < bet:
-            update.message.reply_text("코인 부족")
-            return
+            p_card = random.randint(0, 9)
+            b_card = random.randint(0, 9)
 
-        player = random.randint(0, 9)
-        banker = random.randint(0, 9)
+            if p_card > b_card: result = "플"
+            elif b_card > p_card: result = "뱅"
+            else: result = "타이"
 
-        if player > banker:
-            result = "플"
-        elif banker > player:
-            result = "뱅"
-        else:
-            result = "타이"
-
-        if choice == result:
-            if result == "타이":
-                money[user] += bet * 8
+            if choice == result:
+                win_amt = bet * 8 if result == "타이" else bet
+                money[user] += win_amt
+                msg = f"✨ 승리! (+{win_amt})"
             else:
-                money[user] += bet
-            msg = "승리"
-        else:
-            money[user] -= bet
-            msg = "패배"
+                money[user] -= bet
+                msg = f"💀 패배 (-{bet})"
 
-        update.message.reply_text(
-            f"🎰 바카라\n플:{player} 뱅:{banker}\n결과:{result}\n{msg}\n코인:{money[user]}"
-        )
+            update.message.reply_text(
+                f"🎰 결과: [플:{p_card} vs 뱅:{b_card}]\n결과값: {result}\n{msg}\n현재잔액: {money[user]}"
+            )
+        except:
+            update.message.reply_text("사용법: !배팅 플 10000 (플/뱅/타이)")
 
-updater = Updater(TOKEN)
-updater.dispatcher.add_handler(MessageHandler(Filters.text, message))
+    # 랭킹
+    elif text.startswith("!랭킹"):
+        rank = sorted(money.items(), key=lambda x: x[1], reverse=True)
+        text_rank = "🏆 TOP 5 랭킹\n"
+        for i, (u, c) in enumerate(rank[:5]):
+            text_rank += f"{i+1}위. @{u} : {c}코인\n"
+        update.message.reply_text(text_rank)
 
-updater.start_polling()
-updater.idle()
+# --- 실행부 ---
+if __name__ == '__main__':
+    # 1. 가짜 웹서버 실행 (Render 유지용)
+    keep_alive()
+    
+    # 2. 텔레그램 봇 실행
+    TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc"
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, message))
+
+    print("봇이 시작되었습니다...")
+    updater.start_polling()
+    updater.idle()
