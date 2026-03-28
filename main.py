@@ -1,3 +1,24 @@
+import os
+from flask import Flask
+from threading import Thread
+
+# Render의 포트 에러를 방지하기 위한 가짜 서버
+app = Flask('')
+@app.route('/')
+def home():
+    return "I am alive"
+
+def run():
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# 이 아래에 기존 봇 코드를 넣으세요
+# 예: keep_alive() 
+# bot.polling()
+
 import random
 import datetime
 from telegram.ext import Updater, MessageHandler, Filters
