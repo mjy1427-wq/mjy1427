@@ -2,7 +2,7 @@ import random
 import datetime
 from telegram.ext import Updater, MessageHandler, Filters
 
-TOKEN = "8771125252:AAFZUn8DbV8oTdvKF_vrno5NvmuL_qaEJ1Y"
+TOKEN ="8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc"
 ADMIN = "EJ1427"
 
 money = {}
