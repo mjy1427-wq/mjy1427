@@ -19,6 +19,17 @@ def keep_alive(): Thread(target=run).start()
 user_data = {}
 ADMIN = "EJ1427"
 TRANSFER_FEE = 0.08 # 송금 수수료 8%
+    if txt == "!명령어":
+        msg = (f"🔵 **G-COIN BOT 명령어**\n━━━━━━━━━━━━━━━━━━\n"
+               f"💰 `!내정보` - 내 잔액 및 정보 확인\n"
+               f"⛏ `!채광` - 광물 채굴 시작\n"
+               f"🛒 `!상점` - 곡괭이 구매 및 수리\n"
+               f"💎 `!판매` - 광물 판매하여 코인 획득\n"
+               f"💸 `!송금 @아이디 금액` - 코인 보내기\n"
+               f"🎲 `!플` `!뱅` `!타이 금액` - 바카라 참여\n"
+               f"━━━━━━━━━━━━━━━━━━")
+        update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        return
 
 # 곡괭이 설정 (가격, 내구도, 티어별 확률: 1T, 2T, 3T, 4T, 5T, 실패)
 PICKAXES = {
