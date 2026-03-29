@@ -1,146 +1,167 @@
-import random
-import logging
-import os
-from flask import Flask
-from threading import Thread
+import random, logging, time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Updater, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 
-# 로그 설정 (Render 대시보드에서 확인 가능)
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-
-# --- [1. 기본 설정 및 관리자 정보] ---
-TOKEN = "8603959168:AAH9Jq_5erWZgvocsvnjS1rP4G_F9VW-CbQ”
+# --- [1. 시스템 설정] ---
+TOKEN = "8603959168:AAH9Jq_5erWZgvocsvnjs1rP4G_F9VW-CbQ"
 ADMIN_ID = 7476630349 
+TITLE = "🏆 [포켓몬월드:약육강식 에디션] 🏆"
 
-# 등급별 아이콘 설정 (이미지 UI 재현)
-TIER_ICONS = {
-    "신화": "◽", "환상": "◽", "전설": "⭐", "유니크": "🔹", "희귀": "🔸", "레어": "▫️", "일반": "▫️"
-}
+# 배율 및 설정 데이터
+GEAR_BONUS = {"C급": 1.0, "B급": 1.2, "A급": 1.5, "S급": 2.0, "SS급": 3.0}
+POKE_NAMES = ["피카츄", "리자몽", "뮤츠", "루기아", "칠색조", "세레비", "레쿠쟈", "그란돈", "가이오가", "디아루가", "펄기아", "아르세우스"]
 
-POKEMON_DB = {
-    "루기아": {"tier": "전설", "atk": 130}, 
-    "아르세우스": {"tier": "환상", "atk": 160},
-    "뮤츠": {"tier": "신화", "atk": 154}, 
-    "디아루가": {"tier": "신화", "atk": 150},
-    "리자몽": {"tier": "유니크", "atk": 109}, 
-    "피카츄": {"tier": "레어", "atk": 55}
-}
-
-# 유저 데이터 저장소 (실제 운영 시에는 DB 연결 권장)
 user_data = {}
-ban_list = set()
 
-# Render 포트 체크 통과를 위한 가짜 웹 서버
-app = Flask('')
-@app.route('/')
-def home(): return "Bot is Alive!"
+# --- [2. 확률 및 보상 엔진] ---
+def get_encounter_tier():
+    r = random.random() * 100
+    if r <= 1.0: return "신화"
+    elif r <= 3.0: return "환상"
+    elif r <= 8.0: return "전설"
+    elif r <= 18.0: return "유니크"
+    elif r <= 33.0: return "희귀"
+    elif r <= 58.0: return "레어"
+    else: return "일반"
 
-def run_web():
-    # Render의 환경변수 PORT를 사용하거나 기본 10000번 사용
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+def get_catch_rate(tier):
+    # 신화 포획 0.5% 고정 ㅡㅡ+
+    rates = {"신화": 0.5, "환상": 3.0, "전설": 7.0, "유니크": 15.0, "희귀": 30.0, "레어": 50.0, "일반": 70.0}
+    return rates.get(tier, 50.0)
 
-# --- [2. UI 마크업 함수] ---
+def get_random_reward(tier):
+    # 등급별 랜덤 보상 범위 설정 ㅡㅡ+
+    if tier == "일반": return random.randint(10000, 50000)
+    elif tier == "레어": return random.randint(60000, 100000)
+    elif tier == "희귀": return random.randint(110000, 400000)
+    elif tier == "유니크": return random.randint(500000, 900000)
+    elif tier == "전설": return random.randint(1000000, 3000000)
+    elif tier == "환상": return random.randint(5000000, 10000000)
+    elif tier == "신화": return random.randint(50000000, 200000000)
+    return 10000
 
-def get_main_menu_markup():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🍃 탐험하기", callback_data="menu_explore"), 
-         InlineKeyboardButton("💻 포켓몬 관리 (PC)", callback_data="menu_pc")],
-        [InlineKeyboardButton("💳 내 정보 (트레이너)", callback_data="menu_info"),
-         InlineKeyboardButton("🎒 내 가방", callback_data="menu_bag")],
-        [InlineKeyboardButton("🏪 상점", callback_data="menu_shop"),
-         InlineKeyboardButton("💰 판매장", callback_data="menu_market")],
-        [InlineKeyboardButton("📖 수집 도감", callback_data="menu_pokedex"),
-         InlineKeyboardButton("🏆 랭킹", callback_data="menu_rank")],
-        [InlineKeyboardButton("🎒 내 장비", callback_data="menu_equip"),
-         InlineKeyboardButton("⚒️ 스타포스 강화", callback_data="menu_starforce")]
-    ])
+# --- [3. 메뉴 UI 구성 (이미지 순서 10개 버튼)] ---
+def get_main_menu():
+    keyboard = [
+        [InlineKeyboardButton("🍃 탐험하기", callback_data="m_explore"), InlineKeyboardButton("💻 PC등록", callback_data="m_pc_main")],
+        [InlineKeyboardButton("💳 내 정보", callback_data="m_info"), InlineKeyboardButton("🎒 내 가방", callback_data="m_bag")],
+        [InlineKeyboardButton("🏪 상점", callback_data="m_shop"), InlineKeyboardButton("💰 판매장", callback_data="m_sell")],
+        [InlineKeyboardButton("🎰 슬롯머신", callback_data="m_slot"), InlineKeyboardButton("🏆 랭킹", callback_data="m_rank")],
+        [InlineKeyboardButton("🎒 배틀 기어", callback_data="m_gear"), InlineKeyboardButton("⚒️ 스타포스 강화", callback_data="m_star")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-def get_pc_markup():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📥 PC에 등록", callback_data="pc_reg_list"),
-         InlineKeyboardButton("📤 PC에서 해제", callback_data="pc_del_list")],
-        [InlineKeyboardButton("🔙 메인 메뉴", callback_data="menu_back")]
-    ])
-
-# --- [3. 핵심 로직 핸들러] ---
-
-def handle_message(update: Update, context: CallbackContext):
-    uid = update.effective_user.id
-    text = update.message.text
-    if uid in ban_list: return 
-
-    if text == ".가입":
-        if uid in user_data: return update.message.reply_text("이미 등록된 트레이너입니다.")
-        user_data[uid] = {
-            "name": update.effective_user.first_name, "gold": 100000, 
-            "pokes": [], "pc": [], "inv": {"슈퍼볼":0,"하이퍼볼":0,"마스터볼":0},
-            "level": 1, "partner": None
-        }
-        return update.message.reply_text("🎊 가입 완료! `.메뉴`를 입력하세요.")
-
-    user = user_data.get(uid)
-    if not user: return
-
-    # .pc, .탐험 등 유저 입력 시 메뉴 응답
-    if text.startswith("."):
-        if text == ".pc":
-            refresh_pc_screen(update, user, is_message=True)
-        else:
-            msg = "🎮 **[ 포켓몬 월드 메인 메뉴 ]**\n\n원하시는 기능을 터치해 주세요!"
-            update.message.reply_text(msg, reply_markup=get_main_menu_markup(), parse_mode='Markdown')
-
+# --- [4. 콜백 쿼리 핸들러] ---
 def callback_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     uid = query.from_user.id
     user = user_data.get(uid)
-    if not user: return
+    data = query.data
+    if not user: return query.answer("가입이 필요합니다!")
 
-    if query.data == "menu_pc":
-        refresh_pc_screen(query, user)
-    elif query.data == "menu_back":
-        query.edit_message_text("🎮 **[ 포켓몬 월드 메인 메뉴 ]**", reply_markup=get_main_menu_markup(), parse_mode='Markdown')
+    # [탐험하기 및 포획]
+    if data == "m_explore":
+        tier = get_encounter_tier()
+        context.user_data['temp_tier'] = tier
+        btns = [[InlineKeyboardButton("⚾️ 몬스터볼", callback_data="c_norm"),
+                 InlineKeyboardButton(f"🟣 마스터볼({user['items'].get('마스터볼',0)})", callback_data="c_mast")]]
+        query.edit_message_text(f"❗ **[{tier} 등급]** 조우!\n(포획 확률: {get_catch_rate(tier)}%)\n결과를 지켜보십시오. ㅡㅡ+", reply_markup=InlineKeyboardMarkup(btns), parse_mode='Markdown')
 
-# --- [4. 가방 숫자 자동화 적용된 PC 화면] ---
+    elif data.startswith("c_"):
+        ball = "마스터볼" if "mast" in data else "몬스터볼"
+        tier = context.user_data.get('temp_tier', "일반")
+        if ball == "마스터볼" and user['items'].get("마스터볼", 0) <= 0: return query.answer("볼 부족!")
+        if ball == "마스터볼": user['items']["마스터볼"] -= 1
+        
+        query.edit_message_text(f"⚙️ {ball} 투척 중...")
+        time.sleep(1.2)
+        
+        success_rate = get_catch_rate(tier) * (1000.0 if ball == "마스터볼" else 1.0)
+        if (random.random() * 100) <= success_rate:
+            reward = get_random_reward(tier)
+            user['gold'] += reward
+            # 장비 드랍 (0.1% SS급 공지)
+            g_rand = random.random() * 100
+            fg = "SS급" if g_rand <= 0.1 else "S급" if g_rand <= 0.5 else "A급" if g_rand <= 1.5 else "B급" if g_rand <= 5.0 else None
+            
+            name = random.choice(POKE_NAMES)
+            new_poke = {"name": name, "tier": tier, "gear": "C급", "star": 0, "atk": 100}
+            user['pokes'].append(new_poke)
+            
+            msg = f"🎊 **{name}({tier})** 포획 성공!\n💰 보상: **+{reward:,}G** 획득!"
+            if fg:
+                user['inventory'][fg] = user['inventory'].get(fg, 0) + 1
+                msg += f"\n📦 **[{fg}]** 장비를 가방에 넣었습니다!"
+                if fg == "SS급":
+                    for u in user_data.keys():
+                        try: context.bot.send_message(u, f"📣 **[서버 공지]**\n🎊 **{user['name']}**님이 ✨**[SS급 장비]**✨를 획득했습니다!", parse_mode='Markdown')
+                        except: pass
+            query.edit_message_text(msg, reply_markup=get_main_menu())
+        else:
+            query.edit_message_text(f"💨 {tier} 등급이 도망갔습니다. ㅡㅡ", reply_markup=get_main_menu())
 
-def refresh_pc_screen(target, user, is_message=False):
-    slot_list = ""
-    for p in user['pc']:
-        icon = TIER_ICONS.get(p['tier'], "▫️")
-        slot_list += f"{icon} {p['tier']} · B · {p['name']} Lv.{p['lv']}\n"
-    
-    # 가방 대기 숫자를 실제 데이터(len)로 계산 ㅡㅡ+
-    pokes_count = len(user['pokes'])
-    
-    msg = (f"**[ 💻 PC · 포켓몬 관리 ]**\n"
-           f"━━━━━━━━━━━━━━━━━━\n\n"
-           f"**슬롯 {len(user['pc'])}/6**\n"
-           f"{slot_list if slot_list else '비어 있음'}\n"
-           f"━━━━━━━━━━━━━━━━━━\n\n"
-           f"가방 대기 {pokes_count}마리\n"
-           f"**PC에 올린 포켓몬만 파트너 지정 가능합니다.**")
-    
-    if is_message:
-        target.message.reply_text(msg, reply_markup=get_pc_markup(), parse_mode='Markdown')
-    else:
-        target.edit_message_text(msg, reply_markup=get_pc_markup(), parse_mode='Markdown')
+    # [PC 등록 (추가/제거)]
+    elif data == "m_pc_main":
+        btns = [[InlineKeyboardButton("➕ 추가", callback_data="pc_add"), InlineKeyboardButton("➖ 제거", callback_data="pc_rem")],
+                [InlineKeyboardButton("🔙 메인으로", callback_data="m_back")]]
+        query.edit_message_text(f"💻 **PC 관리** (보호 중: {len(user['pc'])}/6)\n등록된 포켓몬은 판매 및 전달이 불가합니다.", reply_markup=InlineKeyboardMarkup(btns))
 
-# --- [5. 메인 실행부] ---
+    elif data == "pc_add":
+        if len(user['pc']) >= 6: return query.answer("PC 용량 초과 (최대 6마리)!")
+        btns = [[InlineKeyboardButton(p['name'], callback_data=f"pado_{i}")] for i, p in enumerate(user['pokes']) if p not in user['pc']]
+        btns.append([InlineKeyboardButton("🔙 뒤로", callback_data="m_pc_main")])
+        query.edit_message_text("➕ PC에 등록할 포켓몬을 선택하세요.", reply_markup=InlineKeyboardMarkup(btns))
 
+    elif data.startswith("pado_"):
+        idx = int(data.split("_")[1])
+        user['pc'].append(user['pokes'][idx])
+        query.edit_message_text("✅ PC에 안전하게 등록되었습니다.", reply_markup=get_main_menu())
+
+    # [배틀 기어 (장착)]
+    elif data == "m_gear":
+        btns = [[InlineKeyboardButton(f"{p['name']} [{p['gear']}]", callback_data=f"gsel_{i}")] for i, p in enumerate(user['pokes'])]
+        btns.append([InlineKeyboardButton("🔙 메인으로", callback_data="m_back")])
+        query.edit_message_text("🎒 장비를 장착할 포켓몬을 선택하세요.", reply_markup=InlineKeyboardMarkup(btns))
+
+    elif data.startswith("gsel_"):
+        p_idx = int(data.split("_")[1])
+        btns = [[InlineKeyboardButton(f"{g} (보유:{c})", callback_data=f"gfit_{p_idx}_{g}")] for g, c in user['inventory'].items() if c > 0]
+        btns.append([InlineKeyboardButton("🔙 뒤로", callback_data="m_gear")])
+        query.edit_message_text("🛠 가방에서 장착할 장비를 선택하세요.", reply_markup=InlineKeyboardMarkup(btns))
+
+    elif data.startswith("gfit_"):
+        _, _, p_idx, g_tier = data.split("_")
+        p = user['pokes'][int(p_idx)]
+        user['inventory'][g_tier] -= 1
+        p['gear'] = g_tier
+        p['atk'] = int((100 + (p['star'] * 100)) * GEAR_BONUS[g_tier])
+        query.answer(f"{g_tier} 장착 완료!")
+        query.edit_message_text(f"✅ {p['name']}에게 {g_tier} 장비를 장착했습니다.", reply_markup=get_main_menu())
+
+    # [메인으로]
+    elif data == "m_back":
+        query.edit_message_text(f"{TITLE}\n메뉴를 선택하세요. ㅡㅡ+", reply_markup=get_main_menu())
+
+# --- [5. 메시지 핸들러] ---
+def handle_msg(update: Update, context: CallbackContext):
+    uid = update.effective_user.id
+    text = update.message.text
+    if text == ".가입":
+        if uid not in user_data:
+            user_data[uid] = {"name": update.effective_user.first_name, "gold": 1000000, 
+                              "items": {"마스터볼": 1}, "pokes": [], "pc": [], "inventory": {}}
+            update.message.reply_text(f"{TITLE}\n가입을 환영합니다! .메뉴를 입력해보세요.")
+        else: update.message.reply_text("이미 가입되어 있습니다!")
+    elif text == ".메뉴":
+        if uid in user_data: update.message.reply_text(f"{TITLE}\n원하시는 기능을 선택하세요. ㅡㅡ+", reply_markup=get_main_menu())
+        else: update.message.reply_text(".가입 을 먼저 해주세요.")
+
+# --- [6. 서버 구동] ---
 def main():
-    # Render 웹 서버 시작
-    Thread(target=run_web).start()
-    
-    # 텔레그램 봇 시작
-    updater = Updater(TOKEN)
-    dp = updater.dispatcher
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    up = Updater(TOKEN)
+    dp = up.dispatcher
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_msg))
     dp.add_handler(CallbackQueryHandler(callback_handler))
-    
-    print("Bot is running...")
-    updater.start_polling()
-    updater.idle()
+    up.start_polling(); up.idle()
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
