@@ -10,8 +10,8 @@ from telegram.ext import Updater, CallbackQueryHandler, CallbackContext, Message
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # --- [1. 기본 설정 및 관리자 정보] ---
-TOKEN = "8603959168:AAH9Jq_5erWZgvocsvnjS1rP4G_F9VW-CbQ” #
-ADMIN_ID = 7476630349 #
+TOKEN = "8603959168:AAH9Jq_5erWZgvocsvnjS1rP4G_F9VW-CbQ”
+ADMIN_ID = 7476630349 
 
 # 등급별 아이콘 설정 (이미지 UI 재현)
 TIER_ICONS = {
