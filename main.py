@@ -7,7 +7,7 @@ from telegram.ext import Updater, CallbackQueryHandler, CallbackContext, Message
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # --- [1. 기본 설정 및 관리자 정보] --- ㅡㅡ+
-TOKEN = "8603959168:AAH9Jq_5erWZgvocsw"
+TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc"
 ADMIN_ID = 7476630349 
 
 TIER_ICONS = {
