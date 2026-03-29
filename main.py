@@ -3,7 +3,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Updater, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 
 # --- [1. 시스템 설정] ---
-TOKEN = "8603959168:AAH9Jq_5erWZgvocsvnjs1rP4G_F9VW-CbQ"
+TOKEN = "8603959168:AAFfP7bH_LA5214i1OaRSH3uPPzr5daovBc"
 ADMIN_ID = 7476630349 
 TITLE = "🏆 [포켓몬월드:약육강식 에디션] 🏆"
 
