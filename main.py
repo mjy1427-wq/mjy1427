@@ -4,8 +4,8 @@ from threading import Thread
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import Updater, MessageHandler, Filters, CallbackQueryHandler
 
-# --- [서버 유지 설정] ---
-app = Flask(''); ADMIN_ID = "EJ1427" # 관리자 텔레그램 아이디
+# --- [서버 및 관리자 설정] ---
+app = Flask(''); ADMIN_ID = "EJ1427" 
 @app.route('/')
 def home(): return "G-COIN BOT Online"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
@@ -16,11 +16,7 @@ user_data = {}
 baccarat_history = [] 
 IMG_BASE = "https://raw.githubusercontent.com/mjy1427-wq/mjy1427/main/cards/"
 
-# 52장 포커 덱 설정
-SUITS = ["S", "H", "D", "C"]
-RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
-DECK = [{"rank": r, "suit": s, "value": min(i+1, 10) if r not in ["10", "J", "Q", "K"] else 0, "name": f"{r}{s}"} for s in SUITS for i, r in enumerate(RANKS)]
-
+# [광물 및 가격 데이터] - !인벤토리와 !판매에 사용됨
 ORES = {
     "diam1": {"n":"💎 1티어 다이아몬드", "p":3000000, "t":1, "c":1.0},
     "ori": {"n":"🔱 오리하르콘", "p":2500000, "t":1, "c":2.0},
@@ -33,153 +29,167 @@ ORES = {
     "coal": {"n":"🌑 석탄", "p":10000, "t":5, "c":15.0},
     "stone": {"n":"🪨 일반돌", "p":5000, "t":5, "c":15.0}
 }
+
+# [곡괭이 데이터] - !상점에 반영됨 (사진 4, 5, 6번 기준)
 PICKS = {
     "Wood": {"p": 1000000, "d": 100}, "Stone": {"p": 5000000, "d": 300},
     "Iron": {"p": 15000000, "d": 500}, "Gold": {"p": 50000000, "d": 1000},
     "Diamond": {"p": 250000000, "d": 5000}, "Netherite": {"p": 1000000000, "d": 10000}
 }
 
+# [카드 덱 설정]
+SUITS = ["♠️", "♥️", "♦️", "♣️"]
+RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
+DECK = [{"rank": r, "suit": s, "value": min(i+1, 10) if r not in ["10", "J", "Q", "K"] else 0, "name": f"{r}{s}"} for s in SUITS for i, r in enumerate(RANKS)]
+
 def get_user(uid): return user_data.get(uid)
 def draw_card(deck):
     card = random.choice(deck); deck.remove(card)
     return card, deck
 
-# --- [메인 핸들러] ---
+# --- [메인 메시지 핸들러] ---
 def handle_message(update, context):
     uid = update.message.from_user.username
     if not uid: return
     text = update.message.text
-    
+
     # 1. 가입 처리
     if text == "!가입":
         if uid in user_data: return update.message.reply_text("이미 가입된 계정입니다.")
         user_data[uid] = {
             'money': 100000, 'pick': 'Wood', 'dur': 100, 'max_dur': 100,
-            'inv': {k: 0 for k in ORES}, 'reg_date': datetime.datetime.now().strftime("%Y-%m-%d"), 
-            'last_mine': 0
+            'inv': {k: 0 for k in ORES}, 'last_mine': 0
         }
-        return update.message.reply_text("🎊 가입 완료! !명령어를 입력하세요.")
+        return update.message.reply_text("🎊 가입이 완료되었습니다! !명령어로 시작하세요.")
 
     user = get_user(uid)
     if not user: return
 
-    # [관리자 전용] !지급 (익명 처리 및 메시지 삭제)
-    if text.startswith("!지급") and uid == ADMIN_ID:
-        try:
-            parts = text.split()
-            target_id = parts[1].replace("@", "")
-            amount = int(parts[2])
-            if target_id in user_data:
-                user_data[target_id]['money'] += amount
-                # 관리자 메시지 삭제
-                try: context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
-                except: pass
-                # 시스템 메시지로 출력
-                return context.bot.send_message(chat_id=update.effective_chat.id, text=f"🎁 **시스템에서 G-COIN이 도착했습니다!**\n\n대상: @{target_id}\n금액: {amount:,} G", parse_mode=ParseMode.MARKDOWN)
-        except: pass
+    # 2. !인벤 (광물 이름 + 개수 + 가격 완벽 반영)
+    if text == "!인벤":
+        inv_msg = "🎒 **아이템 가방 정보**\n━━━━━━━━━━━━━━\n"
+        found = False
+        for k, v in ORES.items():
+            qty = user['inv'].get(k, 0)
+            if qty > 0:
+                inv_msg += f"📦 {v['n']}\n   └ 수량: {qty}개 (개당 {v['p']:,} G)\n"
+                found = True
+        if not found: return update.message.reply_text("🎒 가방이 비어있습니다. !채광을 먼저 하세요!")
+        return update.message.reply_text(inv_msg, parse_mode=ParseMode.MARKDOWN)
 
-    # 2. 랭킹 시스템
-    elif text == "!랭킹":
-        sorted_users = sorted(user_data.items(), key=lambda x: x[1]['money'], reverse=True)
-        rank_msg = "🏆 **G-COIN 보유량 랭킹 (TOP 10)**\n\n"
-        for i, (uname, data) in enumerate(sorted_users[:10], 1):
-            medal = "🥇" if i == 1 else ("🥈" if i == 2 else ("🥉" if i == 3 else f"{i}위"))
-            rank_msg += f"{medal} @{uname} : {data['money']:,} G\n"
-        update.message.reply_text(rank_msg, parse_mode=ParseMode.MARKDOWN)
+    # 3. !판매 (사진 1번 레이아웃: 1~4티어 한 줄 / 5티어+전체판매 한 줄)
+    elif text == "!판매":
+        kb = [
+            [InlineKeyboardButton("1티어", callback_data="s_1"), InlineKeyboardButton("2티어", callback_data="s_2"),
+             InlineKeyboardButton("3티어", callback_data="s_3"), InlineKeyboardButton("4티어", callback_data="s_4")],
+            [InlineKeyboardButton("5티어", callback_data="s_5"), InlineKeyboardButton("전체판매", callback_data="s_all")]
+        ]
+        return update.message.reply_text("💰 **판매할 등급을 선택하세요.**", reply_markup=InlineKeyboardMarkup(kb))
 
-    # 3. 채광 (40초 쿨타임)
+    # 4. !상점 (사진 4, 5, 6번 문구 및 정보 반영)
+    elif text == "!상점":
+        shop_msg = (
+            "⛏ **곡괭이 상점**\n━━━━━━━━━━━━━━\n\n"
+            "**Wood** — 1,000,000 G (내구도 100)\n"
+            "**Stone** — 5,000,000 G (내구도 300)\n"
+            "**Iron** — 15,000,000 G (내구도 500)\n"
+            "**Gold** — 50,000,000 G (내구도 1,000)\n"
+            "**Diamond** — 250,000,000 G (내구도 5,000)\n"
+            "**Netherite** — 1,000,000,000 G (내구도 10,000)\n\n"
+            "구매를 원하는 곡괭이를 아래에서 선택하세요!"
+        )
+        kb = [[InlineKeyboardButton(f"{pk} 구매", callback_data=f"buy_{pk}")] for pk in PICKS]
+        return update.message.reply_text(shop_msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
+
+    # 5. !채광 (40초 쿨타임)
     elif text == "!채광":
         now = time.time()
         if now - user.get('last_mine', 0) < 40:
-            remain = int(40 - (now - user['last_mine']))
-            return update.message.reply_text(f"⏱ **{remain}초** 후에 다시 채광 가능합니다.")
-        if user['dur'] <= 0: return update.message.reply_text("🪓 곡괭이가 부서졌습니다!")
+            rem = int(40 - (now - user['last_mine']))
+            return update.message.reply_text(f"⏱ **{rem}초** 뒤에 다시 채광할 수 있습니다.")
+        if user['dur'] <= 0: return update.message.reply_text("🪓 곡괭이가 부서졌습니다! 상점에서 새로 구입하세요.")
         user['dur'] -= 1; user['last_mine'] = now
-        sel = random.choices(list(ORES.keys()), weights=[v['c'] for v in ORES.values()])[0]
-        user['inv'][sel] += 1
-        update.message.reply_text(f"⛏ **{ORES[sel]['n']}** 획득!\n🔧 내구도: {user['dur']}/{user['max_dur']}")
+        res = random.choices(list(ORES.keys()), weights=[v['c'] for v in ORES.values()])[0]
+        user['inv'][res] += 1
+        return update.message.reply_text(f"⛏ **{ORES[res]['n']}**을(를) 캤습니다!\n🔧 남은 내구도: {user['dur']}/{user['max_dur']}")
 
-    # 4. 바카라 (카드 이미지 연출)
+    # 6. 바카라 배팅 (!플, !뱅, !타이)
     elif any(text.startswith(x) for x in ["!플 ", "!뱅 ", "!타이 "]):
         try:
-            bet_type = "P" if "!플" in text else ("B" if "!뱅" in text else "T")
+            bet = "P" if "!플" in text else ("B" if "!뱅" in text else "T")
             amt = int(text.split()[1])
-            if amt > user['money'] or amt <= 0: return update.message.reply_text("잔액 부족!")
+            if amt > user['money'] or amt <= 0: return update.message.reply_text("보유 코인이 부족합니다.")
             
             deck = list(DECK); p1, deck = draw_card(deck); p2, deck = draw_card(deck)
             b1, deck = draw_card(deck); b2, deck = draw_card(deck)
-            p_val, b_val = (p1['value']+p2['value'])%10, (b1['value']+b2['value'])%10
+            pv, bv = (p1['value']+p2['value'])%10, (b1['value']+b2['value'])%10
 
-            # 카드 이미지 순차 공개
-            update.message.reply_photo(photo=f"{IMG_BASE}p_open.png", caption=f"🃏 **플레이어 카드**\n합 {p_val}")
-            time.sleep(2)
-            update.message.reply_photo(photo=f"{IMG_BASE}b_open.png", caption=f"🃏 **뱅커 카드**\n합 {b_val}")
+            update.message.reply_photo(photo=f"{IMG_BASE}p_open.png", caption=f"🃏 플레이어: {pv}점")
+            time.sleep(1.5)
+            update.message.reply_photo(photo=f"{IMG_BASE}b_open.png", caption=f"🃏 뱅커: {bv}점")
             
-            result = "P" if p_val > b_val else ("B" if b_val > p_val else "T")
-            baccarat_history.append(result)
-            if len(baccarat_history) > 120: baccarat_history.pop(0)
+            win = "P" if pv > bv else ("B" if bv > pv else "T")
+            baccarat_history.append(win); user['money'] -= amt
+            if bet == win:
+                rate = 8 if win == "T" else 2
+                user['money'] += (amt * rate); r_msg = f"✅ 승리! +{amt*rate:,} G"
+            else: r_msg = f"❌ 패배.. -{amt:,} G"
+            return update.message.reply_text(f"🎰 결과: {pv} vs {bv}\n{r_msg}")
+        except: return
 
-            user['money'] -= amt
-            if bet_type == result:
-                mult = 8 if result == "T" else 2
-                user['money'] += (amt * mult); res_t = f"✅ 승리! +{amt*mult:,} G"
-            else: res_t = f"❌ 패배.. -{amt:,} G"
-            update.message.reply_text(f"🎰 **결과: {p_val} vs {b_val}**\n{res_t}")
+    # 7. !명령어 (모든 명령어 활성화)
+    elif text == "!명령어":
+        help_txt = (
+            "📜 **G-COIN BOT 명령어**\n━━━━━━━━━━━━━━\n"
+            "🔹 가입 / 내정보 / 인벤 / 랭킹\n"
+            "🔹 채광(40초) / 판매 / 상점\n"
+            "🔹 바카라(그림장) / !플 !뱅 !타이 [금액]"
+        )
+        return update.message.reply_text(help_txt, parse_mode=ParseMode.MARKDOWN)
+
+    # 8. 관리자 지급 (익명성 보장)
+    elif text.startswith("!지급") and uid == ADMIN_ID:
+        try:
+            p = text.split(); tid = p[1].replace("@", ""); a = int(p[2])
+            if tid in user_data:
+                user_data[tid]['money'] += a
+                try: context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+                except: pass
+                return context.bot.send_message(chat_id=update.effective_chat.id, text=f"🎁 **시스템에서 G-COIN이 지급되었습니다.**\n대상: @{tid}\n금액: {a:,} G")
         except: pass
 
-    # 5. 그림장 (첫 칸부터 채우기)
-    elif text == "!바카라":
-        COLS, ROWS = 20, 6
-        grid = [["⬜" for _ in range(COLS)] for _ in range(ROWS)]
-        for i, res in enumerate(baccarat_history):
-            r, c = i // COLS, i % COLS
-            if r < ROWS: grid[r][c] = "🔵" if res == "B" else ("🔴" if res == "P" else "🟢")
-        board = "📊 **실시간 그림장**\n`" + "\n".join(["".join(r) for r in grid]) + "`"
-        update.message.reply_text(board, parse_mode=ParseMode.MARKDOWN)
-
-    # 6. 상점 및 판매
-    elif text == "!상점":
-        kb = [[InlineKeyboardButton(f"{pk} ({info['p']:,}G)", callback_data=f"buy_{pk}")] for pk, info in PICKS.items()]
-        update.message.reply_text("⛏ **곡괭이 상점**", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif text == "!판매":
-        kb = [[InlineKeyboardButton(f"{i}티어", callback_data=f"s_{i}") for i in range(1, 4)],
-              [InlineKeyboardButton(f"{i}티어", callback_data=f"s_{i}") for i in range(4, 6)],
-              [InlineKeyboardButton("전체판매", callback_data="s_all")]]
-        update.message.reply_text("💰 등급 선택", reply_markup=InlineKeyboardMarkup(kb))
-
-    # 7. 내정보 및 명령어
+    # 9. 내정보 및 랭킹
     elif text == "!내정보":
-        update.message.reply_text(f"👤 **@{uid}**\n💵 잔액: {user['money']:,} G\n⛏ 곡괭이: {user['pick']} ({user['dur']}/{user['max_dur']})")
+        return update.message.reply_text(f"👤 @{uid}\n💵 잔액: {user['money']:,} G\n⛏ 곡괭이: {user['pick']} ({user['dur']}/{user['max_dur']})")
+    
+    elif text == "!랭킹":
+        top = sorted(user_data.items(), key=lambda x: x[1]['money'], reverse=True)[:10]
+        rank_msg = "🏆 **코인 보유 랭킹**\n"
+        for i, (n, d) in enumerate(top, 1): rank_msg += f"{i}위. @{n} : {d['money']:,} G\n"
+        return update.message.reply_text(rank_msg)
 
-    elif text == "!명령어":
-        update.message.reply_text("📜 **명령어**\n가입 / 내정보 / 랭킹 / 인벤\n채광(40초) / 판매 / 상점 / 바카라\n배팅: !플 !뱅 !타이 [금액]")
-
-    elif text == "!인벤":
-        inv_msg = "🎒 **인벤토리**\n"
-        for k, v in ORES.items():
-            if user['inv'][k] > 0: inv_msg += f"{v['n']}: {user['inv'][k]}개\n"
-        update.message.reply_text(inv_msg if len(inv_msg) > 10 else "배낭이 비어있습니다.")
-
-# --- [콜백 핸들러] ---
+# --- [콜백 쿼리 핸들러] ---
 def handle_callback(update, context):
     q = update.callback_query; uid = q.from_user.username; user = get_user(uid)
     if not user: return
-    if q.data.startswith("buy_"):
+    
+    if q.data.startswith("buy_"): # 구매 처리
         pk = q.data.split("_")[1]; info = PICKS[pk]
         if user['money'] >= info['p']:
             user['money'] -= info['p']; user['pick'] = pk; user['dur'] = info['d']; user['max_dur'] = info['d']
-            q.edit_message_text(f"✅ {pk} 장착 완료!")
-        else: q.answer("잔액 부족!", show_alert=True)
-    elif q.data.startswith("s_"):
-        gain = 0
+            q.edit_message_text(f"✅ **{pk} 곡괭이** 구매 완료! 즐거운 채광 되세요.")
+        else: q.answer("코인이 부족합니다!", show_alert=True)
+        
+    elif q.data.startswith("s_"): # 판매 처리
+        earn = 0
         if q.data == "s_all":
-            for k in ORES: gain += user['inv'][k] * ORES[k]['p']; user['inv'][k] = 0
+            for k in ORES: earn += user['inv'][k] * ORES[k]['p']; user['inv'][k] = 0
         else:
             t = int(q.data.split("_")[1])
             for k, v in ORES.items():
-                if v['t'] == t: gain += user['inv'][k] * v['p']; user['inv'][k] = 0
-        user['money'] += gain; q.edit_message_text(f"💰 판매 정산: +{gain:,} G")
+                if v['t'] == t: earn += user['inv'][k] * v['p']; user['inv'][k] = 0
+        user['money'] += earn
+        q.edit_message_text(f"💰 **판매 정산 완료**\n총 {earn:,} G가 입금되었습니다.")
     q.answer()
 
 if __name__ == '__main__':
