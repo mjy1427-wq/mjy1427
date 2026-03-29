@@ -4,6 +4,7 @@ from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageH
 
 # --- [1. 관리자 설정 및 데이터] ---
 TOKEN = "8603959168:AAH9Jq_5erWZgvocsvnjS1rP4G_F9VW-CbQ"
+ADMIN ID = 7476630349
 user_data = {}
 user_status = {} # 상점 수량 입력 대기 상태
 
