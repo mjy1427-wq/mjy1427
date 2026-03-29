@@ -6,8 +6,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
 # --- 1. 환경 설정 및 DB 초기화 ---
-TOKEN = "YOUR_BOT_TOKEN_HERE"
-ADMIN_ID = 12345678  # 본인의 숫자 ID 입력
+TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc"
+ADMIN_ID = 7476630349
 
 conn = sqlite3.connect('casino_mining_master.db', check_same_thread=False)
 cursor = conn.cursor()
