@@ -1,171 +1,293 @@
-import logging, time, random, os, datetime
+import random
+import time
+import json
+import re
+from telegram.ext import Updater, MessageHandler, Filters
 from flask import Flask
 from threading import Thread
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
-from telegram.ext import Updater, MessageHandler, Filters, CallbackQueryHandler
 
-# --- [1. 서버 및 관리자 설정] ---
-app = Flask(''); ADMIN_ID = "EJ1427" 
-@app.route('/')
-def home(): return "G-COIN BOT Online"
-def run(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
-def keep_alive(): Thread(target=run).start()
+TOKEN = "여기에_봇토큰"
+ADMIN_ID = "EJ1427"
+DATA_FILE = "data.json"
 
-# --- [2. 데이터베이스 및 카드 설정] ---
-user_data = {} 
-baccarat_history = [] 
-current_round = 0 
-IMG_BASE = "https://raw.githubusercontent.com/mjy1427-wq/mjy1427/main/cards/"
+# 바카라 카드
+DECK_ORIGIN = []
+for suit in ["S","H","D","C"]:
+    for rank,value in zip(
+        ["A","2","3","4","5","6","7","8","9","10","J","Q","K"],
+        [1,2,3,4,5,6,7,8,9,0,0,0,0]
+    ):
+        DECK_ORIGIN.append({"rank":rank,"value":value})
 
-# 광물 확률 및 가격 설정
+# 광물
 ORES = {
-    "diam1": {"n":"다이아몬드", "p":3000000, "t":1, "c":1.0, "e":"💎"},
-    "ori": {"n":"오리하르콘", "p":2500000, "t":1, "c":2.0, "e":"🔱"},
-    "ruby": {"n":"루비", "p":500000, "t":2, "c":5.0, "e":"🍎"},
-    "plat": {"n":"백금광석", "p":450000, "t":2, "c":7.0, "e":"⚪"},
-    "sapph": {"n":"사파이어", "p":400000, "t":3, "c":15.0, "e":"🌌"},
-    "emera": {"n":"에메랄드", "p":250000, "t":3, "c":20.0, "e":"🧪"},
-    "gold": {"n":"금광석", "p":100000, "t":4, "c":25.0, "e":"🥇"},
-    "silv": {"n":"은광석", "p":50000, "t":4, "c":25.0, "e":"🥈"},
-    "coal": {"n":"석탄", "p":10000, "t":5, "c":35.0, "e":"🌑"},
-    "stone": {"n":"일반돌", "p":5000, "t":5, "c":35.0, "e":"🪨"}
+    "stone":{"n":"돌","p":1000,"e":"🪨"},
+    "iron":{"n":"철","p":3000,"e":"⛓"},
+    "gold":{"n":"금","p":8000,"e":"🥇"},
+    "dia":{"n":"다이아","p":20000,"e":"💎"}
 }
 
-PICKS = {
-    "Wood": {"p": 1000000, "d": 100}, "Stone": {"p": 5000000, "d": 300},
-    "Iron": {"p": 15000000, "d": 500}, "Gold": {"p": 50000000, "d": 1000},
-    "Diamond": {"p": 250000000, "d": 5000}, "Netherite": {"p": 1000000000, "d": 10000}
-}
+user_data = {}
+banned_users = set()
+baccarat_history = []
+current_round = 0
 
-SUITS = ["♠️", "♥️", "♦️", "♣️"]; RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
-DECK_ORIGIN = [{"rank": r, "suit": s, "value": min(i+1, 10) if r not in ["10", "J", "Q", "K"] else 0} for s in SUITS for i, r in enumerate(RANKS)]
+# =====================
+# 데이터 저장
+# =====================
+def save_data():
+    with open(DATA_FILE,"w",encoding="utf-8") as f:
+        json.dump({
+            "users":user_data,
+            "banned":list(banned_users),
+            "history":baccarat_history,
+            "round":current_round
+        },f)
 
-def get_user(uid): return user_data.get(uid)
+def load_data():
+    global user_data,banned_users,baccarat_history,current_round
+    try:
+        with open(DATA_FILE,"r",encoding="utf-8") as f:
+            data=json.load(f)
+            user_data=data.get("users",{})
+            banned_users=set(data.get("banned",[]))
+            baccarat_history=data.get("history",[])
+            current_round=data.get("round",0)
+    except:
+        pass
+
+# =====================
+# 카드 뽑기
+# =====================
 def draw_card(deck):
-    card = random.choice(deck); deck.remove(card); return card, deck
+    c=random.choice(deck)
+    deck.remove(c)
+    return c,deck
 
-# --- [3. 메인 핸들러] ---
+# =====================
+# 메시지 처리
+# =====================
 def handle_message(update, context):
-    global current_round, baccarat_history
-    if not update.message or not update.message.text: return
+    global current_round,baccarat_history
+
+    if not update.message or not update.message.text:
+        return
+
     uid = update.message.from_user.username
-    if not uid: return
+    if not uid:
+        return
+
     text = update.message.text.strip()
 
+    # 차단 유저
+    if uid in banned_users:
+        return
+
+    # =====================
+    # 관리자 명령어
+    # =====================
+    if uid == ADMIN_ID:
+        if text.startswith("!지급"):
+            try:
+                _,target,amount=text.split()
+                amount=int(amount)
+                if target not in user_data:
+                    return update.message.reply_text("유저 없음")
+                user_data[target]['money']+=amount
+                save_data()
+                return update.message.reply_text("지급 완료")
+            except:
+                return update.message.reply_text("!지급 아이디 금액")
+
+        elif text.startswith("!차단"):
+            try:
+                _,target=text.split()
+                banned_users.add(target)
+                save_data()
+                return update.message.reply_text("차단 완료")
+            except:
+                return update.message.reply_text("!차단 아이디")
+
+    # =====================
     # 가입
+    # =====================
     if text == "!가입":
-        if uid in user_data: return update.message.reply_text("이미 가입된 계정입니다.")
-        user_data[uid] = {'money': 100000, 'pick': 'Wood', 'dur': 100, 'max_dur': 100, 'inv': {k: 0 for k in ORES}, 'last_mine': 0}
-        return update.message.reply_text("🎊 가입 완료! 10만 G가 지급되었습니다.")
+        if uid in user_data:
+            return update.message.reply_text("이미 가입됨")
 
-    user = get_user(uid)
-    if not user: return
+        user_data[uid] = {
+            'money':100000,
+            'pick':'Wood',
+            'dur':100,
+            'max_dur':100,
+            'inv':{k:0 for k in ORES},
+            'last_mine':0,
+            'last_attend':0,
+            'attend_streak':0
+        }
+        save_data()
+        return update.message.reply_text("가입 완료 100,000G 지급")
 
-    # [바카라 배팅 로직 - 금액 무제한 및 명령어 최적화]
-    target_cmd = None
-    if text.startswith("!플"): target_cmd = "!플"; bet_type = "P"
-    elif text.startswith("!뱅"): target_cmd = "!뱅"; bet_type = "B"
-    elif text.startswith("!타이"): target_cmd = "!타이"; bet_type = "T"
+    # 가입 안 했으면 막기
+    if uid not in user_data:
+        return update.message.reply_text("!가입 먼저 하세요")
 
-    if target_cmd:
-        try:
-            # 명령어 뒤에 붙은 모든 숫자를 추출 (공백, 괄호 등 제거)
-            amt_text = "".join(filter(str.isdigit, text.replace(target_cmd, "")))
-            if not amt_text: return update.message.reply_text(f"💰 배팅 금액을 입력해 주세요!\n사용법: {target_cmd} 100")
-            
-            amt = int(amt_text)
-            if amt < 0: return update.message.reply_text("❌ 잘못된 금액입니다.")
-            if amt > user['money']: return update.message.reply_text(f"❌ 잔액이 부족합니다! (현재: {user['money']:,} G)")
+    user = user_data[uid]
 
-            current_round += 1
-            temp_deck = list(DECK_ORIGIN)
-            p1, temp_deck = draw_card(temp_deck); p2, temp_deck = draw_card(temp_deck)
-            b1, temp_deck = draw_card(temp_deck); b2, temp_deck = draw_card(temp_deck)
-            pv, bv = (p1['value']+p2['value'])%10, (b1['value']+b2['value'])%10
+    # =====================
+    # 바카라
+    # =====================
+    bet_match = re.match(r"^!(플|뱅|타이)\s*([0-9,]+)", text)
+    if bet_match:
+        cmd = bet_match.group(1)
+        amt = int(bet_match.group(2).replace(",",""))
 
-            # 카드 대형 연출
-            update.message.reply_photo(photo=f"{IMG_BASE}p_open.png", caption=f"🃏 [ {current_round}/45 회차 ]\n플레이어 카드 공개: {pv}점")
-            time.sleep(0.6)
-            update.message.reply_photo(photo=f"{IMG_BASE}b_open.png", caption=f"🃏 뱅커 카드 공개: {bv}점")
-            
-            result = "P" if pv > bv else ("B" if bv > pv else "T")
-            baccarat_history.append(result); user['money'] -= amt
+        if amt > user['money']:
+            return update.message.reply_text("잔액 부족")
 
-            # 배당: 플 2.0 / 뱅 1.85 / 타이 6.0
-            if bet_type == result:
-                rate = 2.0 if result == "P" else (1.85 if result == "B" else 6.0)
-                prize = int(amt * rate); user['money'] += prize
-                res_txt = f"✅ 승리! {rate}배 당첨: +{prize:,} G"
-            else: res_txt = f"❌ 패배.. -{amt:,} G"
-            
-            update.message.reply_text(f"🎰 결과: {pv} vs {bv}\n{res_txt}\n💵 잔액: {user['money']:,} G")
+        bet_type = "P" if cmd=="플" else ("B" if cmd=="뱅" else "T")
 
-            if current_round >= 45:
-                current_round = 0; baccarat_history = []
-                update.message.reply_text("⚠️ 45회차 종료! 그림장과 회차를 리셋합니다. (새 판 시작)")
-            return 
-        except Exception: return
+        current_round += 1
+        deck = list(DECK_ORIGIN)
 
-    # [일반 명령어들]
-    if text == "!채광":
-        now = time.time()
-        if now - user['last_mine'] < 40: return update.message.reply_text(f"⏱ {int(40-(now-user['last_mine']))}초 후 가능")
-        if user['dur'] <= 0: return update.message.reply_text("🪓 곡괭이 파손!")
-        user['dur'] -= 1; user['last_mine'] = now
-        res_key = random.choices(list(ORES.keys()), weights=[v['c'] for v in ORES.values()])[0]
-        o = ORES[res_key]; user['inv'][res_key] += 1
-        return update.message.reply_text(f"⛏ {o['e']} {o['t']}티어 {o['n']} 획득!\n🔧 내구도: {user['dur']}/{user['max_dur']}")
+        p1,deck = draw_card(deck)
+        p2,deck = draw_card(deck)
+        b1,deck = draw_card(deck)
+        b2,deck = draw_card(deck)
 
-    elif text == "!바카라":
-        if not baccarat_history: return update.message.reply_text("기록이 없습니다.")
-        COLS = 15; grid = [["⬜" for _ in range(COLS)] for _ in range(3)]
-        for i, res in enumerate(baccarat_history):
-            if i < 45: grid[i//COLS][i%COLS] = "🔴" if res == "P" else ("🔵" if res == "B" else "🟢")
-        return update.message.reply_text(f"📊 **그림장 ({current_round}/45)**\n`" + "\n".join(["".join(r) for r in grid]) + "`", parse_mode=ParseMode.MARKDOWN)
+        pv = (p1['value'] + p2['value']) % 10
+        bv = (b1['value'] + b2['value']) % 10
 
-    elif text == "!내정보": return update.message.reply_text(f"👤 @{uid}\n💵 자산: {user['money']:,} G\n⛏ {user['pick']} ({user['dur']}/{user['max_dur']})")
-    elif text == "!인벤":
-        inv_msg = "🎒 **가방**\n"; found = False
-        for k, v in ORES.items():
-            if user['inv'][k] > 0: inv_msg += f"{v['e']} {v['n']}: {user['inv'][k]}개\n"; found = True
-        return update.message.reply_text(inv_msg if found else "🎒 비어있음")
-    elif text == "!판매":
-        kb = [[InlineKeyboardButton(f"{i}티어", callback_data=f"s_{i}") for i in range(1, 5)], [InlineKeyboardButton("5티어", callback_data="s_5"), InlineKeyboardButton("전체판매", callback_data="s_all")]]
-        return update.message.reply_text("💰 판매 등급 선택", reply_markup=InlineKeyboardMarkup(kb))
-    elif text == "!상점":
-        shop_msg = "⛏ **상점**\n"; [shop_msg := shop_msg + f"• {k}: {v['p']:,} G\n" for k, v in PICKS.items()]
-        kb = [[InlineKeyboardButton(f"구매 {k}", callback_data=f"buy_{k}")] for k in PICKS]
-        return update.message.reply_text(shop_msg, reply_markup=InlineKeyboardMarkup(kb))
-    elif text == "!랭킹":
-        rankers = sorted(user_data.items(), key=lambda x: x[1]['money'], reverse=True)[:10]
-        rank_msg = "🏆 **자산 순위**\n"
-        for i, (name, data) in enumerate(rankers, 1): rank_msg += f"{i}위. @{name}: {data['money']:,} G\n"
-        return update.message.reply_text(rank_msg, parse_mode=ParseMode.MARKDOWN)
-    elif text == "!명령어": return update.message.reply_text("📜 가입/내정보/인벤/채광/판매/상점/바카라/랭킹\n배팅: !플 !뱅 !타이 [금액]")
+        result = "P" if pv>bv else ("B" if bv>pv else "T")
 
-def handle_callback(update, context):
-    q = update.callback_query; uid = q.from_user.username; user = get_user(uid)
-    if not user: return
-    if q.data.startswith("buy_"):
-        pk = q.data.split("_")[1]; info = PICKS[pk]
-        if user['money'] >= info['p']:
-            user['money'] -= info['p']; user['pick'] = pk; user['dur'] = info['d']; user['max_dur'] = info['d']
-            q.edit_message_text(f"✅ {pk} 장착!")
-        else: q.answer("돈 부족!", show_alert=True)
-    elif q.data.startswith("s_"):
-        gain = 0
-        if q.data == "s_all":
-            for k in ORES: gain += user['inv'][k] * ORES[k]['p']; user['inv'][k] = 0
+        user['money'] -= amt
+
+        if bet_type == result:
+            rate = 2 if result=="P" else (1.85 if result=="B" else 6)
+            win = int(amt * rate)
+            user['money'] += win
+            msg = f"승리 +{win}"
         else:
-            t = int(q.data.split("_")[1]); [gain := gain + user['inv'][k] * v['p'] for k, v in ORES.items() if v['t'] == t]; [user['inv'].update({k: 0}) for k, v in ORES.items() if v['t'] == t]
-        user['money'] += gain; q.edit_message_text(f"💰 판매 완료: +{gain:,} G")
-    q.answer()
+            msg = f"패배 -{amt}"
 
+        baccarat_history.append(result)
+        if len(baccarat_history) > 20:
+            baccarat_history.pop(0)
+
+        save_data()
+        return update.message.reply_text(f"{pv} vs {bv}\n{msg}")
+
+    # =====================
+    # 채광
+    # =====================
+    if text == "!채광":
+        now=time.time()
+        if now-user['last_mine']<40:
+            return update.message.reply_text("채광 대기중")
+        user['last_mine']=now
+
+        ore=random.choice(list(ORES.keys()))
+        user['inv'][ore]+=1
+        user['dur']-=1
+
+        save_data()
+        return update.message.reply_text(f"{ORES[ore]['n']} 획득")
+
+    # =====================
+    # 인벤
+    # =====================
+    if text == "!인벤":
+        msg="인벤토리\n"
+        empty=True
+        for k,v in ORES.items():
+            if user['inv'][k]>0:
+                msg += f"{v['e']} {v['n']} {user['inv'][k]}개\n"
+                empty=False
+        if empty:
+            msg="인벤토리 비어있음"
+        return update.message.reply_text(msg)
+
+    # =====================
+    # 판매
+    # =====================
+    if text == "!판매":
+        total=0
+        for k,v in ORES.items():
+            qty=user['inv'][k]
+            if qty>0:
+                total += qty*v['p']
+                user['inv'][k]=0
+        if total==0:
+            return update.message.reply_text("판매할 광물 없음")
+        user['money']+=total
+        save_data()
+        return update.message.reply_text(f"{total}G 획득")
+
+    # =====================
+    # 출석
+    # =====================
+    if text == "!출석":
+        now=time.time()
+        last=user.get('last_attend',0)
+        streak=user.get('attend_streak',0)
+
+        if now-last < 86400:
+            return update.message.reply_text("이미 출석함")
+
+        if now-last > 172800:
+            streak=0
+
+        streak+=1
+        user['attend_streak']=streak
+        user['last_attend']=now
+
+        if streak==1: reward=50000
+        elif streak==2: reward=60000
+        elif streak==3: reward=70000
+        elif streak==4: reward=80000
+        elif streak==5: reward=100000
+        else: reward=120000
+
+        user['money']+=reward
+        save_data()
+
+        return update.message.reply_text(f"출석 {streak}일차 +{reward}")
+
+    # =====================
+    # 랭킹
+    # =====================
+    if text == "!랭킹":
+        rank=sorted(user_data.items(), key=lambda x:x[1]['money'], reverse=True)
+        msg="랭킹\n"
+        for i,(name,data) in enumerate(rank,1):
+            msg += f"{i}. {name} {data['money']}\n"
+        return update.message.reply_text(msg)
+
+    # =====================
+    # 바카라 기록
+    # =====================
+    if text == "!바카라":
+        return update.message.reply_text(str(baccarat_history))
+
+# =====================
+# 서버 유지
+# =====================
+app = Flask('')
+@app.route('/')
+def home():
+    return "bot running"
+
+def keep_alive():
+    Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
+
+# =====================
+# 실행
+# =====================
 if __name__ == '__main__':
+    load_data()
     keep_alive()
-    TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc"
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
     dp.add_handler(MessageHandler(Filters.text, handle_message))
-    dp.add_handler(CallbackQueryHandler(handle_callback))
-    updater.start_polling(); updater.idle()
+    updater.start_polling()
+    updater.idle()
