@@ -32,7 +32,7 @@ def run_health_check():
 # --- [2. 시스템 설정 및 발란스 데이터] ---
 # ==========================================
 # @BotFather에서 발급받은 실제 토큰을 입력하세요. ㅡㅡ+
-TOKEN = "8603959168:AAH9Jq_5erWZgvocsvnjs1rP4G_F9VW-CbQ" 
+TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc"
 ADMIN_ID = 7476630349
 TITLE = "🏆 [포켓몬월드:약육강식 에디션] 🏆"
 
