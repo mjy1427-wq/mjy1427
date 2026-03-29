@@ -4,20 +4,20 @@ from threading import Thread
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import Updater, MessageHandler, Filters, CallbackQueryHandler
 
-# --- [1. 서버 유지 및 기본 설정] ---
+# --- [1. 서버 유지 및 관리자 설정] ---
 app = Flask(''); ADMIN_ID = "EJ1427" 
 @app.route('/')
 def home(): return "G-COIN BOT Online"
 def run(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
 def keep_alive(): Thread(target=run).start()
 
-# --- [2. 게임 데이터 및 변수] ---
+# --- [2. 시스템 데이터베이스] ---
 user_data = {} 
 baccarat_history = [] 
-current_round = 0  # 1~45회차 카운트용
+current_round = 0  # 바카라 회차 카운트
 IMG_BASE = "https://raw.githubusercontent.com/mjy1427-wq/mjy1427/main/cards/"
 
-# [광물 확률 설정] 5티어 70%, 4티어 50% 수준 비중 반영
+# [광물 및 확률 설정] - 5티어 70%, 4티어 50% 수준 비중
 ORES = {
     "diam1": {"n":"다이아몬드", "p":3000000, "t":1, "c":1.0, "e":"💎"},
     "ori": {"n":"오리하르콘", "p":2500000, "t":1, "c":2.0, "e":"🔱"},
@@ -45,7 +45,7 @@ def draw_card(deck):
     card = random.choice(deck); deck.remove(card)
     return card, deck
 
-# --- [3. 메시지 핸들러] ---
+# --- [3. 메인 로직 핸들러] ---
 def handle_message(update, context):
     global current_round, baccarat_history
     if not update.message or not update.message.text: return
@@ -53,27 +53,27 @@ def handle_message(update, context):
     if not uid: return
     text = update.message.text.strip()
 
-    # 가입 기능
+    # [가입]
     if text == "!가입":
         if uid in user_data: return update.message.reply_text("이미 가입된 계정입니다.")
-        user_data[uid] = {'money': 100000, 'pick': 'Wood', 'dur': 100, 'max_dur': 100, 'inv': {k: 0 for k in ORES}, 'last_mine': 0}
-        return update.message.reply_text("🎊 가입 완료! !명령어로 시작하세요.")
+        user_data[uid] = {'money': 100000, 'pick': 'Wood', 'dur': 100, 'max_dur': 100, 'inv': {k: 0 for k in ORES}, 'last_mine': 0, 'join_date': datetime.datetime.now()}
+        return update.message.reply_text("🎊 가입 완료! 10만 G가 지급되었습니다.\n!명령어로 시작하세요.")
 
     user = get_user(uid)
     if not user: return
 
-    # [채광] 장식 제거 및 정보 표시
+    # [채광 시스템]
     if text == "!채광":
         now = time.time()
         if now - user['last_mine'] < 40:
             return update.message.reply_text(f"⏱ {int(40-(now-user['last_mine']))}초 후 가능")
-        if user['dur'] <= 0: return update.message.reply_text("🪓 곡괭이가 파손되었습니다!")
+        if user['dur'] <= 0: return update.message.reply_text("🪓 곡괭이 파손! 상점에서 새로 구매하세요.")
         user['dur'] -= 1; user['last_mine'] = now
         res_key = random.choices(list(ORES.keys()), weights=[v['c'] for v in ORES.values()])[0]
         o = ORES[res_key]; user['inv'][res_key] += 1
         return update.message.reply_text(f"⛏ {o['e']} {o['t']}티어 {o['n']} 획득!\n💰 가치: {o['p']:,} G\n🔧 내구도: {user['dur']}/{user['max_dur']}")
 
-    # [바카라] 배당(플 2, 뱅 1.85, 타이 6) + 45회 리셋 로직
+    # [바카라 배팅] 45회 리셋 + 플 2 / 뱅 1.85 / 타이 6
     elif any(text.startswith(x) for x in ["!플", "!뱅", "!타이"]):
         try:
             parts = text.split()
@@ -88,8 +88,7 @@ def handle_message(update, context):
             pv, bv = (p1['value']+p2['value'])%10, (b1['value']+b2['value'])%10
 
             update.message.reply_photo(photo=f"{IMG_BASE}p_open.png", caption=f"🃏 [ {current_round}/45 회차 ]\n플레이어: {pv}점")
-            time.sleep(1)
-            update.message.reply_photo(photo=f"{IMG_BASE}b_open.png", caption=f"뱅커: {bv}점")
+            time.sleep(1); update.message.reply_photo(photo=f"{IMG_BASE}b_open.png", caption=f"뱅커: {bv}점")
 
             result = "P" if pv > bv else ("B" if bv > pv else "T")
             baccarat_history.append(result); user['money'] -= amt
@@ -103,21 +102,29 @@ def handle_message(update, context):
 
             if current_round >= 45:
                 current_round = 0; baccarat_history = []
-                time.sleep(1); update.message.reply_text("⚠️ 45회차 종료! 그림장을 리셋합니다. (1회차부터 다시 시작)")
+                time.sleep(1); update.message.reply_text("⚠️ 45회차 종료! 그림장과 회차를 리셋합니다.")
         except: return
 
-    # [그림장] 리셋 동기화
+    # [바카라 그림장]
     elif text == "!바카라":
-        if not baccarat_history: return update.message.reply_text("기록이 없습니다. (새 판 시작됨)")
+        if not baccarat_history: return update.message.reply_text("기록이 없습니다. (새 판 시작)")
         COLS = 15; grid = [["⬜" for _ in range(COLS)] for _ in range(3)]
         for i, res in enumerate(baccarat_history):
             if i < 45: grid[i//COLS][i%COLS] = "🔴" if res == "P" else ("🔵" if res == "B" else "🟢")
         return update.message.reply_text(f"📊 **현재 판 그림장 ({current_round}/45)**\n`" + "\n".join(["".join(r) for r in grid]) + "`", parse_mode=ParseMode.MARKDOWN)
 
-    # [기타 명령어] 인벤토리 가격 표시 포함
+    # [내정보 및 랭킹]
     elif text == "!내정보":
         return update.message.reply_text(f"👤 @{uid}\n💵 자산: {user['money']:,} G\n⛏ {user['pick']} ({user['dur']}/{user['max_dur']})")
 
+    elif text == "!랭킹":
+        rankers = sorted(user_data.items(), key=lambda x: x[1]['money'], reverse=True)[:10]
+        rank_msg = "🏆 **G-COIN 자산 순위**\n"
+        for i, (name, data) in enumerate(rankers, 1):
+            rank_msg += f"{i}위. @{name}: {data['money']:,} G\n"
+        return update.message.reply_text(rank_msg, parse_mode=ParseMode.MARKDOWN)
+
+    # [인벤토리 및 판매]
     elif text == "!인벤":
         inv_msg = "🎒 **가방 내용물 (판매가 포함)**\n"
         found = False
@@ -129,17 +136,28 @@ def handle_message(update, context):
     elif text == "!판매":
         kb = [[InlineKeyboardButton(f"{i}티어", callback_data=f"s_{i}") for i in range(1, 5)],
               [InlineKeyboardButton("5티어", callback_data="s_5"), InlineKeyboardButton("전체판매", callback_data="s_all")]]
-        return update.message.reply_text("💰 판매할 등급 선택", reply_markup=InlineKeyboardMarkup(kb))
+        return update.message.reply_text("💰 판매 등급 선택", reply_markup=InlineKeyboardMarkup(kb))
 
+    # [상점]
     elif text == "!상점":
-        shop_msg = "⛏ **상점**\n"; for k, v in PICKS.items(): shop_msg += f"• {k}: {v['p']:,} G\n"
+        shop_msg = "⛏ **곡괭이 상점**\n"
+        for k, v in PICKS.items(): shop_msg += f"• {k}: {v['p']:,} G (내구도 {v['d']})\n"
         kb = [[InlineKeyboardButton(f"구매 {k}", callback_data=f"buy_{k}")] for k in PICKS]
         return update.message.reply_text(shop_msg, reply_markup=InlineKeyboardMarkup(kb))
 
-    elif text == "!명령어":
-        return update.message.reply_text("📜 명령어 리스트\n가입 / 내정보 / 인벤 / 채광 / 판매 / 상점 / 바카라\n!플 !뱅 !타이 [금액]")
+    # [관리자 전용 코인 지급]
+    elif text.startswith("!지급 ") and uid == ADMIN_ID:
+        try:
+            _, target, amount = text.split()
+            if target in user_data:
+                user_data[target]['money'] += int(amount)
+                update.message.reply_text(f"💰 @{target}님에게 {int(amount):,} G 지급 완료!")
+        except: pass
 
-# --- [4. 콜백 및 실행] ---
+    elif text == "!명령어":
+        return update.message.reply_text("📜 명령어 리스트\n가입 / 내정보 / 인벤 / 채광 / 판매 / 상점 / 바카라 / 랭킹\n!플 !뱅 !타이 [금액]")
+
+# --- [4. 콜백 핸들러] ---
 def handle_callback(update, context):
     q = update.callback_query; uid = q.from_user.username; user = get_user(uid)
     if not user: return
