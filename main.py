@@ -3,8 +3,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Updater, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 
 # --- [1. 기본 설정 및 관리자 정보] ---
-TOKEN = "여기에_봇_토큰_입력"
-ADMIN_ID = 12345678  # 관리자님 ID ㅡㅡ+
+TOKEN = "8603959168:AAH9Jq_5erWZgvocsvnjS1rP4G_F9VW-CbQ"
+ADMIN_ID = 7476630349 
 
 # 포켓몬 데이터베이스 (1~4세대 혼합)
 POKEMON_DB = {
