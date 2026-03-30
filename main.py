@@ -6,10 +6,10 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
 # --- 1. 환경 설정 및 DB 초기화 ---
-TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc"
-ADMIN_ID = 7476630349
+TOKEN = "YOUR_BOT_TOKEN_HERE"
+ADMIN_ID = 12345678  # <--- 본인의 숫자 ID를 입력하세요 (필수!)
 
-conn = sqlite3.connect('casino_mining_master.db', check_same_thread=False)
+conn = sqlite3.connect('casino_mining_ultimate.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS users 
                   (user_id INTEGER PRIMARY KEY, username TEXT, coins INTEGER DEFAULT 1000, 
@@ -21,7 +21,7 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS baccarat_history
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, result TEXT)''')
 conn.commit()
 
-# --- 2. 데이터 설정 ---
+# --- 2. 데이터 설정 (광물 가치 및 곡괭이 정보) ---
 MINERAL_PRICES = {
     "네더라이트": 5000000, "다이아몬드": 3000000, "에메랄드": 2000000, "루비": 1500000,
     "사파이어": 1000000, "백금": 700000, "금": 500000, "은": 300000,
@@ -56,7 +56,7 @@ def get_baccarat_board():
     if len(history) >= 45:
         cursor.execute("DELETE FROM baccarat_history")
         conn.commit()
-        output += "\n⚠️ **기록지가 45회차를 채워 다음 판에 리셋됩니다!**"
+        output += "\n⚠️ **45회차가 완료되어 기록지가 리셋되었습니다!**"
     return output
 
 # --- 4. 메인 커맨드 핸들러 ---
@@ -65,6 +65,22 @@ async def handle_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text, user = update.message.text, update.effective_user
     u = get_user(user.id)
 
+    # [관리자 전용] !지급 [아이디] [금액]
+    if text.startswith("!지급"):
+        if user.id != ADMIN_ID:
+            await update.message.reply_text("🚫 관리자만 사용할 수 있는 명령어입니다.")
+            return
+        try:
+            parts = text.split()
+            target_id, amount = int(parts[1]), int(parts[2])
+            cursor.execute("UPDATE users SET coins = coins + ? WHERE user_id = ?", (amount, target_id))
+            conn.commit()
+            await update.message.reply_text(f"✅ `ID:{target_id}`님께 **{amount:,} 코인**이 지급되었습니다! 🪄")
+        except:
+            await update.message.reply_text("⚠️ 사용법: `!지급 [유저ID] [금액]`")
+        return
+
+    # !가입
     if text == "!가입":
         if u: await update.message.reply_text("이미 가입된 회원입니다."); return
         cursor.execute("INSERT INTO users (user_id, username, reg_date) VALUES (?, ?, ?)", 
@@ -75,9 +91,11 @@ async def handle_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not u: return # 미가입자 보호
 
+    # !내정보
     if text == "!내정보":
         await update.message.reply_text(f"👤 **닉네임**: {user.username}\n🆔 **아이디**: `{user.id}`\n💰 **G코인**: {u[2]:,}개\n📅 **가입일**: {u[6]}", parse_mode='Markdown')
 
+    # !채광
     elif text == "!채광":
         if u[4] <= 0: await update.message.reply_text("💥 곡괭이가 파괴되었습니다! !곡괭이 메뉴에서 조치하세요."); return
         pick = random.choices(list(MINERAL_PRICES.keys()), weights=[1, 2, 4, 6, 8, 12, 15, 20, 40, 60, 80, 100, 150])[0]
@@ -92,6 +110,7 @@ async def handle_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += "\n\n💥 **콰광! 곡괭이가 부서져 파괴되었습니다!**"
         await update.message.reply_text(msg)
 
+    # !인벤
     elif text == "!인벤":
         cursor.execute("SELECT mineral, count FROM inventory WHERE user_id = ?", (user.id,))
         inv, total = cursor.fetchall(), 0
@@ -100,26 +119,30 @@ async def handle_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if c > 0:
                 val = MINERAL_PRICES[m] * c
                 msg += f"▫️ {m} x{c}개 ({val:,} G)\n"; total += val
-        await update.message.reply_text(f"{msg}─\n💰 **보유 광물 가치**: {total:,} G", parse_mode='Markdown')
+        await update.message.reply_text(f"{msg}─\n💰 **총 가치**: {total:,} G", parse_mode='Markdown')
 
+    # !상점
     elif text == "!상점":
         keyboard = [[InlineKeyboardButton("⚒ 곡괭이 상점", callback_data="shop_p"), InlineKeyboardButton("💎 광물 일괄판매", callback_data="sell_all")]]
         await update.message.reply_text("🛒 **상점 메뉴**", reply_markup=InlineKeyboardMarkup(keyboard))
 
+    # !곡괭이
     elif text == "!곡괭이":
         keyboard = [[InlineKeyboardButton("⛏ 착용 변경", callback_data="p_change"), InlineKeyboardButton("💥 곡괭이 파괴", callback_data="p_break")], [InlineKeyboardButton("🔧 수리하기", callback_data="p_repair")]]
         await update.message.reply_text(f"⛏ **현재 곡괭이**: {u[3]}\n🔋 **내구도**: {u[4]}/{u[5]}", reply_markup=InlineKeyboardMarkup(keyboard))
 
+    # !바카라
     elif text == "!바카라":
         await update.message.reply_text(get_baccarat_board(), parse_mode='Markdown')
 
+    # 배팅 로직 (!플, !뱅, !타이)
     elif any(text.startswith(x) for x in ["!플", "!뱅", "!타이"]):
         try:
             amt = int(text.split()[1])
             if u[2] < amt: await update.message.reply_text("코인이 부족합니다."); return
             b_type = "Player" if "!플" in text else ("Banker" if "!뱅" in text else "Tie")
             
-            await update.message.reply_text(f"🎰 **배팅 완료!** ({b_type} {amt:,}G)\n20초 후 배팅이 마감됩니다.")
+            await update.message.reply_text(f"🎰 **배팅 완료!** ({b_type} {amt:,}G)\n20초 후 배팅 마감.")
             await asyncio.sleep(20)
             msg = await update.message.reply_text("🚫 **배팅 마감!** (5초 후 결과 발표)")
             await asyncio.sleep(5)
