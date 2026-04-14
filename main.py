@@ -1,208 +1,297 @@
-import sqlite3
-import asyncio
 import random
+import time
 from datetime import datetime
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# --- 1. 환경 설정 및 DB 초기화 ---
-TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc"
-ADMIN_ID = 7476630349  # <--- 본인의 숫자 ID를 입력하세요 (필수!)
+# ==========================================
+# 1. 환경 설정 (반드시 본인 정보로 수정)
+# ==========================================
+ADMIN_ID =  7476630349 # 여기에 본인의 텔레그램 숫자 ID 입력
+BOT_TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc" # BotFather에게 받은 토큰 입력
 
-conn = sqlite3.connect('casino_mining_ultimate.db', check_same_thread=False)
-cursor = conn.cursor()
-cursor.execute('''CREATE TABLE IF NOT EXISTS users 
-                  (user_id INTEGER PRIMARY KEY, username TEXT, coins INTEGER DEFAULT 1000, 
-                   pickaxe TEXT DEFAULT '기본 곡괭이', durability INTEGER DEFAULT 100, 
-                   max_durability INTEGER DEFAULT 100, reg_date TEXT)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS inventory 
-                  (user_id INTEGER, mineral TEXT, count INTEGER DEFAULT 0, PRIMARY KEY(user_id, mineral))''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS baccarat_history 
-                  (id INTEGER PRIMARY KEY AUTOINCREMENT, result TEXT)''')
-conn.commit()
+# ==========================================
+# 2. 데이터베이스 (바카라 덱 52장 풀세트)
+# ==========================================
+BACCARAT_DECK = [
+    # --- 0점 카드 (10, J, Q, K) ---
+    {'name': 'SP_10', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7Exp3mWoCRUfVj-ZE5CmN3IUjgtvGQAC2SYAAvCQ8VbM3lvO79VzBTsE'},
+    {'name': 'HT_10', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7E5p3mVSE9Y_S9vS6_WAAKGhAACOv_4VpJmKq_Wz_FTOzsE'},
+    {'name': 'DI_10', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7Elp3mWdvgYOMw9HgRc2Il7kbpGkGwACExsAAtRO8FahNaTDKDCFzTsE'},
+    {'name': 'CL_10', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7Ehp3mWd8ioZzOX1iY2u7FRMlZc4fAACMRsAAhGP8FbmO81P4gZ3DdSE'},
+    {'name': 'SP_J', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7GJp3mXczpHSUQABLPWVYJGRB79K7GUAAs4ZAAljo_BWHVM8Q7mxKjc7BA'},
+    {'name': 'HT_J', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7FBp3mVVZ_S9vS6_WAAKGhAACOv_4VpJmKq_Wz_FTOzsE'},
+    {'name': 'DI_J', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7F5p3mXP7eNL3nEmVkYmy9EnTxmKXAACPbSAAuAa8FauMWEkVitpddSE'},
+    {'name': 'CL_J', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7F1p3mXOHKrfuHvAoDFBdNEGk1YfPgACbBsAAgiy-Fb54wO73qUBddSE'},
+    {'name': 'SP_Q', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7HJp3mX7k8OEWVS8Gjf4e99UVKKQMgACBRcAAr0P8Fa8o_9h2ERTKdSE'},
+    {'name': 'HT_Q', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7HFp3mX77o4V07GRhTZ7p3VjbvEFxgACmxkAA mFN8FYOgeAm8_YYfzsE'},
+    {'name': 'DI_Q', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7G5p3mX09qlW7oCyp-k3Z8KA1E0K3QACdxsAAtvN8FbMD0922U9hiDSE'},
+    {'name': 'CL_Q', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7G1p3mXzjWB4kHKsr0AfljIrFXEDHQA C9BoAAhcI-VaN6tW2wXj8yTsE'},
+    {'name': 'SP_K', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7Gpp3mXt8mcHJ_JyKQgTFnHAwdWtMwACCRoAAi-h-FazQTiuzxZmEzse'},
+    {'name': 'HT_K', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7Glp3mXsAAEdy6_qhm4sGBCZm1DLc38AAp8cAAJqqfhWcF0OQx5DFL87BA'},
+    {'name': 'DI_K', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7GZp3mXKuM-jJaBuOPhPFZSFMiHaSAACax8AAjMH8FYMbgTuO1crrjsE'},
+    {'name': 'CL_K', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7GVp3mXje9-bjU0gVAXEVK_LZT_TMAACdxgAAgk48VaWvHPT0d5KfDsE'},
 
-# --- 2. 데이터 설정 (광물 가치 및 곡괭이 정보) ---
-MINERAL_PRICES = {
-    "네더라이트": 5000000, "다이아몬드": 3000000, "에메랄드": 2000000, "루비": 1500000,
-    "사파이어": 1000000, "백금": 700000, "금": 500000, "은": 300000,
-    "구리": 40000, "철": 20000, "석탄": 13000, "암석": 10000, "청동": 5000
+    # --- 1점 카드 (A) ---
+    {'name': 'SP_A', 'score': 1, 'file_id': 'CAACAgUAAxkBAAEQ7Fhp3mW8BGcPAUjH-Xu4bsjSDHIUSgACwh4AASAz8VYhnQL59WSxmzse'},
+    {'name': 'HT_A', 'score': 1, 'file_id': 'CAACAgUAAxkBAAEQ7Fdp3mW7GOA0zTWFiMJqzdhQvuOzdgAC7RwAArhl8Faz3VKPQgKXMzse'},
+    {'name': 'DI_A', 'score': 1, 'file_id': 'CAACAgUAAxkBAAEQ7FFp3mWXiDQVv4f7uMQbflbdJfLutgACzCAAAla48Vb9T8wXbzPPfjse'},
+    {'name': 'CL_A', 'score': 1, 'file_id': 'CAACAgUAAxkBAAEQ7FBp3mWXjbV3Q5OEMdinCJfQltMsqQACHhsAAuaM8VYvC46og1B2ajse'},
+
+    # --- 2~9점 카드 ---
+    {'name': 'HT_2', 'score': 2, 'file_id': 'CAACAgUAAxkBAAEQ7App3mSRViSy9QABBrH7Hjrq5ouaZZ8AAtcaAALQMflWUcolg756dC47BA'},
+    {'name': 'SP_2', 'score': 2, 'file_id': 'CAACAgUAAxkBAAEQ7Axp3mSaEUEgc5majSVq8OIh7ts2pwACQh4AAuxU8FYnql4-ZGGRJTsE'},
+    {'name': 'CL_2', 'score': 2, 'file_id': 'CAACAgUAAxkBAAEQ7AZp3mR_TSeuCgnjXc4qbGPN_M1yVgACWx4AAubz8VbWRCfXXRC59jsE'},
+    {'name': 'DI_2', 'score': 2, 'file_id': 'CAACAgUAAxkBAAEQ7Ahp3mSHxRGhAYCJQWfKunVrex9XKwACJx0AAhb5-VZ5zrTMtEsdvjsE'},
+    {'name': 'CL_3', 'score': 3, 'file_id': 'CAACAgUAAxkBAAEQ7A5p3mSksYYgf8iEeXDDR8fq1KRP4QACaR8AAv5Y8VaTLVf2T489ZzsE'},
+    {'name': 'DI_3', 'score': 3, 'file_id': 'CAACAgUAAxkBAAEQ7BBp3mSukxqN7O7HsmM4-5hD9GEPywACPB0AAjb28Fb2JkBj8-_NNjsE'},
+    {'name': 'HT_3', 'score': 3, 'file_id': 'CAACAgUAAxkBAAEQ7BJp3mS1yaKFOG_5CrVrxEyyZV3wAACfhwAAsgs8VZuR148a475jsE'},
+    {'name': 'SP_3', 'score': 3, 'file_id': 'CAACAgUAAxkBAAEQ7BRp3mS-_UwQIUAYhXc_AcvUY9rfvgACrxoAAuBR8VbK9G7nf3c54TsE'},
+    {'name': 'HT_4', 'score': 4, 'file_id': 'CAACAgUAAxkBAAEQ7Bpp3mTSM0lu28ee05WEDvA60gj02QACcB4AAmM48VYrEVYD2RMdTzsE'},
+    {'name': 'SP_4', 'score': 4, 'file_id': 'CAACAgUAAxkBAAEQ7Bxp3mTXgly2BFytQ15h9ry_MruqwwACjxwAAsth8FZ1KAQ0WpYDlzsE'},
+    {'name': 'CL_4', 'score': 4, 'file_id': 'CAACAgUAAxkBAAEQ7BZp3mTEreDBUC8SDd6zMknOuslsJQAC-x0AAk898VallRAp2VysPDsE'},
+    {'name': 'DI_4', 'score': 4, 'file_id': 'CAACAgUAAxkBAAEQ7Bhp3mTLrFneb4g5FGcLDQqiiXfhKwACYx0AAhbh8VaJgN_C89Ws4jsE'},
+    {'name': 'CL_5', 'score': 5, 'file_id': 'CAACAgUAAxkBAAEQ7B5p3mTciJpNbwOUcDGtJanwooEMAACHyEAAofK8FbQIR7YFejOuDsE'},
+    {'name': 'DI_5', 'score': 5, 'file_id': 'CAACAgUAAxkBAAEQ7CBp3mTk31W6hLC6UcCAv373S4akGwACVxwAAidE-FYFTRXzoYHR0jsE'},
+    {'name': 'HT_5', 'score': 5, 'file_id': 'CAACAgUAAxkBAAEQ7CJp3mTrBoeYaj9SfvexBKZAVbkZMgACNBkAAiXt8FYwis7G_aMsczsE'},
+    {'name': 'SP_5', 'score': 5, 'file_id': 'CAACAgUAAxkBAAEQ7CRp3mT632ulFb6I-YFRwOxC5biGdgACEh4AAvYr8Vb0JSaolbjdrTsE'},
+    {'name': 'CL_6', 'score': 6, 'file_id': 'CAACAgUAAxkBAAEQ7CZp3mUCEmoK8EuD6D544yHOaLu3-wAC9hgAAq89-FaiUQuOgwiwzsE'},
+    {'name': 'DI_6', 'score': 6, 'file_id': 'CAACAgUAAxkBAAEQ7Chp3mUNHWqdz7d6zLs1dzO5IJYy3QACfxwAAou88FYld8a9twT_YzsE'},
+    {'name': 'HT_6', 'score': 6, 'file_id': 'CAACAgUAAxkBAAEQ7Clp3mUOKoepG6cx3X8DQVIG9V2sLAAC5BsAAg768FbNdm1szl6UUTsE'},
+    {'name': 'SP_6', 'score': 6, 'file_id': 'CAACAgUAAxkBAAEQ7Chp3mUOCoepG6cx3X8DQVIG9V2sLAAC5BsAAg768FbNdm1szl6UUTsE'},
+    {'name': 'SP_7', 'score': 7, 'file_id': 'CAACAgUAAxkBAAEQ7DFp3mUpnCA-GEJ8oaLYcdSneGJu3QACuhoAAjFN8FbTzoXAcmpBCTsE'},
+    {'name': 'HT_7', 'score': 7, 'file_id': 'CAACAgUAAxkBAAEQ7DBp3mUpBnm0QPY0a2CaDUGGzfqmqwACiBsAAtB0-Fb1BMJRuaIUJDSE'},
+    {'name': 'CL_7', 'score': 7, 'file_id': 'CAACAgUAAxkBAAEQ7C1p3mUaD__E8YaJEA2puTxbnjHnyQACth0AAjMq8Val7P12Gpjr2DsE'},
+    {'name': 'DI_7', 'score': 7, 'file_id': 'CAACAgUAAxkBAAEQ7Hdp3mYSx96E3k_hPNMS_FOdDQAB0b4AAk0dAAITVfFW4T3rXlj6AAFWOWqQ'},
+    {'name': 'SP_8', 'score': 8, 'file_id': 'CAACAgUAAxkBAAEQ7Dlp3mVKb8CjYmV0DNZCrujiZx5S5wACqScAAnS48FYYwX-ZCyh0iDsE'},
+    {'name': 'HT_8', 'score': 8, 'file_id': 'CAACAgUAAxkBAAEQ7Dhp3mVJ5yNHLy28B9BHT2qfgsv2rQACdB4AAnMM8VZTMSvcZqfutzsE'},
+    {'name': 'DI_8', 'score': 8, 'file_id': 'CAACAgUAAxkBAAEQ7DVp3mU13uK_NKkAAUefJseY-eW03RAAAi0bAAKhoPFWLno-ReRJ4H47BA'},
+    {'name': 'CL_8', 'score': 8, 'file_id': 'CAACAgUAAxkBAAEQ7DRp3mU1sNsf-ebu7c80oVqgji32mgACpR8AAuNO8VaW49WvovXUZzsE'},
+    {'name': 'SP_9', 'score': 9, 'file_id': 'CAACAgUAAxkBAAEQ7EVp3mWUy1KHmKxHMBmbmo738zl1GQACyhkAAmI9-FY-6RY8e3-UETsE'},
+    {'name': 'HT_9', 'score': 9, 'file_id': 'CAACAgUAAxkBAAEQ7ERp3mWT3RbXuluWyAVqNgpJ4KSunwACERoAAnvy-VaomxXwVnT5RDsE'},
+    {'name': 'DI_9', 'score': 9, 'file_id': 'CAACAgUAAxkBAAEQ7EFp3mWGN5nL3ma1jSENoY1PYOLCgwACVx4AAjW7-Fa30fLUp ygsgzsE'},
+    {'name': 'CL_9', 'score': 9, 'file_id': 'CAACAgUAAxkBAAEQ7EBp3mWGYNOoFfvUelUEqB__xWN40wACQxwAAqMu8FZUMsBrOgtazjsE'},
+]
+
+# 광물 데이터
+minerals = {
+    "아다만티움": 500, "다이아몬드": 350, "오리하르콘": 250, "미스릴": 160,
+    "플래티넘": 130, "흑요석": 110, "금": 80, "은": 60, "티타늄": 50,
+    "철": 30, "구리": 20, "석탄": 10, "돌": 3, "모래": 2, "자갈": 1.5
 }
 
-PICKAXE_DATA = {
-    "Wood": {"buy": 1000000, "repair": 100000, "dur": 100},
-    "Stone": {"buy": 5000000, "repair": 500000, "dur": 300},
-    "Iron": {"buy": 15000000, "repair": 1000000, "dur": 500},
-    "Gold": {"buy": 50000000, "repair": 3000000, "dur": 1000},
-    "Diamond": {"buy": 250000000, "repair": 5000000, "dur": 5000},
-    "Netherite": {"buy": 1000000000, "repair": 100000000, "dur": 10000}
-}
+tiers = [
+    (1, ["아다만티움","다이아몬드","오리하르콘"], 1),
+    (2, ["미스릴","플래티넘","흑요석"], 9),
+    (3, ["금","은","티타늄"], 20),
+    (4, ["철","구리","석탄"], 30),
+    (5, ["돌","모래","자갈"], 40)
+]
 
-# --- 3. 유틸리티 함수 ---
-def get_user(user_id):
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    return cursor.fetchone()
+# ===== 통합 데이터 저장소 =====
+users = {}
 
-def get_baccarat_board():
-    cursor.execute("SELECT result FROM baccarat_history ORDER BY id ASC")
-    history = [row[0] for row in cursor.fetchall()]
-    board = [["⬜" for _ in range(29)] for _ in range(7)]
-    for i, res in enumerate(history):
-        col, row = i // 7, i % 7
-        if col < 29:
-            board[row][col] = "🔵" if res == "P" else ("🔴" if res == "B" else "🟢")
-    
-    output = f"📊 **실시간 기록지 ({len(history)}/45)**\n"
-    for r in board: output += "".join(r) + "\n"
-    if len(history) >= 45:
-        cursor.execute("DELETE FROM baccarat_history")
-        conn.commit()
-        output += "\n⚠️ **45회차가 완료되어 기록지가 리셋되었습니다!**"
-    return output
+def get_user(user_id, name):
+    if user_id not in users:
+        users[user_id] = {
+            "name": name,
+            "money": 0,
+            "inv": {},
+            "pity": 0,
+            "fail": 0,
+            "crit": 0,
+            "mine": 0,
+            "last_checkin": "",
+            "joined": False
+        }
+    return users[user_id]
 
-# --- 4. 메인 커맨드 핸들러 ---
-async def handle_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text: return
-    text, user = update.message.text, update.effective_user
-    u = get_user(user.id)
+# ==========================================
+# 3. 게임 로직 (채광 & 바카라 규칙)
+# ==========================================
 
-    # [관리자 전용] !지급 [아이디] [금액]
-    if text.startswith("!지급"):
-        if user.id != ADMIN_ID:
-            await update.message.reply_text("🚫 관리자만 사용할 수 있는 명령어입니다.")
-            return
-        try:
-            parts = text.split()
-            target_id, amount = int(parts[1]), int(parts[2])
-            cursor.execute("UPDATE users SET coins = coins + ? WHERE user_id = ?", (amount, target_id))
-            conn.commit()
-            await update.message.reply_text(f"✅ `ID:{target_id}`님께 **{amount:,} 코인**이 지급되었습니다! 🪄")
-        except:
-            await update.message.reply_text("⚠️ 사용법: `!지급 [유저ID] [금액]`")
+def calculate_score(hand):
+    return sum(card['score'] for card in hand) % 10
+
+def mine(user):
+    user["mine"] += 1
+    if user["pity"] >= 100:
+        mineral = random.choice(tiers[0][1])
+        user["pity"] = 0
+    else:
+        roll = random.uniform(0, 100)
+        total = 0
+        for tier, items, chance in tiers:
+            total += chance
+            if roll <= total:
+                mineral = random.choice(items)
+                break
+    user["pity"] = 0 if mineral in tiers[0][1] else user["pity"] + 1
+    value = minerals[mineral]
+    crit_text = ""
+    if random.random() < 0.05:
+        user["crit"] += 1
+        multi = random.choice([2,3,5])
+        value *= multi
+        crit_text = f"\n⚡ 크리티컬 {multi}배!"
+    user["inv"][mineral] = user["inv"].get(mineral, 0) + 1
+    return mineral, value, crit_text
+
+# ==========================================
+# 4. 명령어 핸들러
+# ==========================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("⛏ 채광하기", callback_data="mine")],
+        [InlineKeyboardButton("🎒 인벤", callback_data="inv"), InlineKeyboardButton("💰 판매", callback_data="sell")],
+        [InlineKeyboardButton("👤 내정보", callback_data="info"), InlineKeyboardButton("🏆 랭킹", callback_data="rank")]
+    ]
+    await update.message.reply_text("🎮 **통합 게임 시스템**\n/가입 (10만 지급)\n/출석 (30만 지급)\n/플, /뱅, /타이 (금액) 배팅", 
+                                  reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user(update.effective_user.id, update.effective_user.first_name)
+    if user["joined"]:
+        await update.message.reply_text("❌ 이미 가입되어 있습니다.")
+    else:
+        user["joined"], user["money"] = True, user["money"] + 100000
+        await update.message.reply_text("🎊 가입 축하! 10만 원 지급되었습니다.")
+
+async def checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user(update.effective_user.id, update.effective_user.first_name)
+    today = datetime.now().strftime("%Y-%m-%d")
+    if user["last_checkin"] == today:
+        await update.message.reply_text("❌ 오늘은 이미 출석하셨습니다.")
+    else:
+        user["money"], user["last_checkin"] = user["money"] + 300000, today
+        await update.message.reply_text(f"✅ 출석 완료! 30만 원 지급.\n현재 잔액: {user['money']:,}원")
+
+async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user(update.effective_user.id, update.effective_user.first_name)
+    try:
+        to_id, amount = int(context.args[0]), int(context.args[1])
+        if amount > 0 and user["money"] >= amount and to_id in users:
+            user["money"] -= amount
+            users[to_id]["money"] += amount
+            await update.message.reply_text(f"💸 {to_id}님에게 {amount:,}원 송금 완료!")
+        else: raise ValueError
+    except: await update.message.reply_text("❌ 사용법: /송금 (ID) (금액) - 잔액 부족 또는 잘못된 정보")
+
+async def baccarat_bet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user(update.effective_user.id, update.effective_user.first_name)
+    chat_id = update.effective_chat.id
+    cmd = update.message.text.split()
+    if len(cmd) < 2: return
+    try:
+        bet_amount = int(cmd[1])
+        if bet_amount <= 0 or user["money"] < bet_amount: raise ValueError
+    except:
+        await update.message.reply_text("❌ 잔액이 부족하거나 올바른 금액이 아닙니다.")
         return
 
-    # !가입
-    if text == "!가입":
-        if u: await update.message.reply_text("이미 가입된 회원입니다."); return
-        cursor.execute("INSERT INTO users (user_id, username, reg_date) VALUES (?, ?, ?)", 
-                       (user.id, user.username, datetime.now().strftime('%Y-%m-%d')))
-        conn.commit()
-        await update.message.reply_text("🎊 가입 완료! 기본 곡괭이가 지급되었습니다.")
-        return
+    bet_type = "player" if cmd[0] == "/플" else "banker" if cmd[0] == "/뱅" else "tie"
+    user["money"] -= bet_amount
+    await update.message.reply_text(f"🃏 {bet_type.upper()}에 {bet_amount:,}원 배팅!")
 
-    if not u: return # 미가입자 보호
+    deck = BACCARAT_DECK.copy()
+    random.shuffle(deck)
+    p_hand, b_hand = [deck.pop(), deck.pop()], [deck.pop(), deck.pop()]
 
-    # !내정보
-    if text == "!내정보":
-        await update.message.reply_text(f"👤 **닉네임**: {user.username}\n🆔 **아이디**: `{user.id}`\n💰 **G코인**: {u[2]:,}개\n📅 **가입일**: {u[6]}", parse_mode='Markdown')
+    # 카드 공개
+    await context.bot.send_message(chat_id, "👤 플레이어 카드:")
+    for c in p_hand: await context.bot.send_sticker(chat_id, c['file_id'])
+    await context.bot.send_message(chat_id, "🏦 뱅커 카드:")
+    for c in b_hand: await context.bot.send_sticker(chat_id, c['file_id'])
 
-    # !채광
-    elif text == "!채광":
-        if u[4] <= 0: await update.message.reply_text("💥 곡괭이가 파괴되었습니다! !곡괭이 메뉴에서 조치하세요."); return
-        pick = random.choices(list(MINERAL_PRICES.keys()), weights=[1, 2, 4, 6, 8, 12, 15, 20, 40, 60, 80, 100, 150])[0]
-        new_dur = u[4] - 1
-        cursor.execute("INSERT INTO inventory (user_id, mineral, count) VALUES (?, ?, 1) ON CONFLICT(user_id, mineral) DO UPDATE SET count = count + 1", (user.id, pick))
-        cursor.execute("UPDATE users SET durability = ? WHERE user_id = ?", (new_dur, user.id))
-        conn.commit()
-        msg = f"⛏ **채광 완료!**\n💎 획득: {pick} ({MINERAL_PRICES[pick]:,} G)\n📉 내구도: {new_dur}/{u[5]}"
-        if new_dur <= 0:
-            cursor.execute("UPDATE users SET pickaxe='기본 곡괭이', durability=100, max_durability=100 WHERE user_id=?", (user.id,))
-            conn.commit()
-            msg += "\n\n💥 **콰광! 곡괭이가 부서져 파괴되었습니다!**"
-        await update.message.reply_text(msg)
+    p_score, b_score = calculate_score(p_hand), calculate_score(b_hand)
 
-    # !인벤
-    elif text == "!인벤":
-        cursor.execute("SELECT mineral, count FROM inventory WHERE user_id = ?", (user.id,))
-        inv, total = cursor.fetchall(), 0
-        msg = f"🎒 **{user.username}님의 인벤토리**\n"
-        for m, c in inv:
-            if c > 0:
-                val = MINERAL_PRICES[m] * c
-                msg += f"▫️ {m} x{c}개 ({val:,} G)\n"; total += val
-        await update.message.reply_text(f"{msg}─\n💰 **총 가치**: {total:,} G", parse_mode='Markdown')
+    # 추가 카드 규칙
+    if p_score < 8 and b_score < 8:
+        if p_score <= 5:
+            p_third = deck.pop()
+            p_hand.append(p_third)
+            await context.bot.send_message(chat_id, "👤 플레이어 추가!")
+            await context.bot.send_sticker(chat_id, p_third['file_id'])
+            p_score = calculate_score(p_hand)
+        
+        # 뱅커 3구 규칙 요약 적용
+        if len(p_hand) == 2 and b_score <= 5: draw_b = True
+        elif len(p_hand) == 3:
+            p3 = p_hand[2]['score']
+            draw_b = (b_score <= 2) or (b_score == 3 and p3 != 8) or \
+                     (b_score == 4 and p3 in [2,3,4,5,6,7]) or \
+                     (b_score == 5 and p3 in [4,5,6,7]) or \
+                     (b_score == 6 and p3 in [6,7])
+        else: draw_b = False
 
-    # !상점
-    elif text == "!상점":
-        keyboard = [[InlineKeyboardButton("⚒ 곡괭이 상점", callback_data="shop_p"), InlineKeyboardButton("💎 광물 일괄판매", callback_data="sell_all")]]
-        await update.message.reply_text("🛒 **상점 메뉴**", reply_markup=InlineKeyboardMarkup(keyboard))
+        if draw_b:
+            b_third = deck.pop()
+            b_hand.append(b_third)
+            await context.bot.send_message(chat_id, "🏦 뱅커 추가!")
+            await context.bot.send_sticker(chat_id, b_third['file_id'])
+            b_score = calculate_score(b_hand)
 
-    # !곡괭이
-    elif text == "!곡괭이":
-        keyboard = [[InlineKeyboardButton("⛏ 착용 변경", callback_data="p_change"), InlineKeyboardButton("💥 곡괭이 파괴", callback_data="p_break")], [InlineKeyboardButton("🔧 수리하기", callback_data="p_repair")]]
-        await update.message.reply_text(f"⛏ **현재 곡괭이**: {u[3]}\n🔋 **내구도**: {u[4]}/{u[5]}", reply_markup=InlineKeyboardMarkup(keyboard))
+    winner = "player" if p_score > b_score else "banker" if b_score > p_score else "tie"
+    if bet_type == winner:
+        rate = 2 if winner == "player" else 1.95 if winner == "banker" else 8
+        win_money = int(bet_amount * rate)
+        user["money"] += win_money
+        res = f"✅ 당첨! {win_money:,}원 지급!"
+    else: res = "❌ 미적중..."
 
-    # !바카라
-    elif text == "!바카라":
-        await update.message.reply_text(get_baccarat_board(), parse_mode='Markdown')
+    await update.message.reply_text(f"🏁 결과: {winner.upper()} ({p_score}:{b_score})\n{res}\n💰 현재 잔액: {user['money']:,}원")
 
-    # 배팅 로직 (!플, !뱅, !타이)
-    elif any(text.startswith(x) for x in ["!플", "!뱅", "!타이"]):
-        try:
-            amt = int(text.split()[1])
-            if u[2] < amt: await update.message.reply_text("코인이 부족합니다."); return
-            b_type = "Player" if "!플" in text else ("Banker" if "!뱅" in text else "Tie")
-            
-            await update.message.reply_text(f"🎰 **배팅 완료!** ({b_type} {amt:,}G)\n20초 후 배팅 마감.")
-            await asyncio.sleep(20)
-            msg = await update.message.reply_text("🚫 **배팅 마감!** (5초 후 결과 발표)")
-            await asyncio.sleep(5)
+# ==========================================
+# 5. 관리자 및 버튼 처리
+# ==========================================
 
-            p1, p2, b1, b2 = [random.randint(0,9) for _ in range(4)]
-            await msg.edit_text(f"🎴 **P 카드 오픈**\nP: [ {p1} ] [ ? ]\nB: [ ? ] [ ? ]")
-            await asyncio.sleep(3)
-            await msg.edit_text(f"🎴 **B 카드 오픈**\nP: [ {p1} ] [ ? ]\nB: [ {b1} ] [ ? ]")
-            await asyncio.sleep(2)
+async def create_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    try:
+        amount = int(context.args[0])
+        user = get_user(update.effective_user.id, update.effective_user.first_name)
+        user["money"] += amount
+        await update.message.reply_text(f"⚡ 관리자 권한: {amount:,}원 생성 완료!")
+    except: await update.message.reply_text("사용법: /생성 (금액)")
 
-            p_tot, b_tot = (p1+p2)%10, (b1+b2)%10
-            winner = "Player" if p_tot > b_tot else ("Banker" if b_tot > p_tot else "Tie")
-            win_code = "P" if winner == "Player" else ("B" if winner == "Banker" else "T")
-            cursor.execute("INSERT INTO baccarat_history (result) VALUES (?)", (win_code,))
-            
-            win_sym = "🔵" if winner == "Player" else ("🔴" if winner == "Banker" else "🟢")
-            res_txt = f"{win_sym} **{winner.upper()} 승리!** {win_sym}\nP:[{p1}][{p2}]({p_tot}점) / B:[{b1}][{b2}]({b_tot}점)\n"
-            
-            if b_type == winner:
-                rate = 2 if winner == "Player" else (1.95 if winner == "Banker" else 9)
-                win_amt = int(amt * rate)
-                cursor.execute("UPDATE users SET coins = coins + ? WHERE user_id = ?", (win_amt - amt, user.id))
-                res_txt += f"✅ **당첨! +{win_amt:,} G**\n"
-            else:
-                cursor.execute("UPDATE users SET coins = coins - ? WHERE user_id = ?", (amt, user.id))
-                res_txt += f"❌ **낙첨... -{amt:,} G**\n"
-            
-            conn.commit()
-            await msg.edit_text(f"{res_txt}\n{get_baccarat_board()}", parse_mode='Markdown')
-        except: await update.message.reply_text("사용법: !플 [금액]")
-
-# --- 5. 콜백 처리 (상점/수리) ---
-async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    u = get_user(query.from_user.id)
     await query.answer()
+    user = get_user(query.from_user.id, query.from_user.first_name)
 
-    if query.data == "p_repair":
-        p_info = PICKAXE_DATA.get(u[3])
-        if not p_info: await query.message.reply_text("수리 불가 품목입니다."); return
-        cost = int(((u[5]-u[4])/u[5]) * p_info['repair'])
-        if u[2] < cost: await query.message.reply_text(f"수리비 부족! ({cost:,} G 필요)"); return
-        cursor.execute("UPDATE users SET coins=coins-?, durability=? WHERE user_id=?", (cost, u[5], u[0]))
-        conn.commit()
-        await query.message.reply_text(f"🔧 **수리 완료!** (-{cost:,} G)")
+    if query.data == "mine":
+        m, v, c = mine(user)
+        await query.edit_message_text(f"⛏ **{m}** 획득!{c}\n(가치: {minerals[m]}만원)", 
+                                      reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⛏ 다시 채광", callback_data="mine")]]), parse_mode='Markdown')
+    elif query.data == "inv":
+        txt = "🎒 **인벤토리**\n" + "\n".join([f"• {m} x{c}" for m, c in user["inv"].items()])
+        await query.edit_message_text(f"{txt}\n\n💰 총 예상가: {sum(minerals[m]*c for m,c in user['inv'].items()):,}만원", parse_mode='Markdown')
+    elif query.data == "sell":
+        total = sum(minerals[m]*c for m, c in user["inv"].items())
+        user["money"], user["inv"] = user["money"] + total, {}
+        await query.edit_message_text(f"💰 판매 완료! {total:,}원 지급됨.\n보유금: {user['money']:,}원")
+    elif query.data == "info":
+        await query.edit_message_text(f"👤 {user['name']}\n💰 {user['money']:,}원\n⛏ {user['mine']}회\n⚡ 크릿 {user['crit']}회")
+    elif query.data == "rank":
+        ranking = sorted(users.items(), key=lambda x: x[1]["money"], reverse=True)[:5]
+        text = "🏆 **자산 랭킹**\n" + "\n".join([f"{i+1}. {u['name']} - {u['money']:,}원" for i,(uid,u) in enumerate(ranking)])
+        await query.edit_message_text(text, parse_mode='Markdown')
 
-    elif query.data == "sell_all":
-        cursor.execute("SELECT mineral, count FROM inventory WHERE user_id=?", (u[0],))
-        inv, total = cursor.fetchall(), 0
-        for m, c in inv: total += MINERAL_PRICES.get(m, 0) * c
-        if total <= 0: await query.message.reply_text("판매할 광물이 없습니다."); return
-        cursor.execute("UPDATE inventory SET count=0 WHERE user_id=?", (u[0],))
-        cursor.execute("UPDATE users SET coins=coins+? WHERE user_id=?", (total, u[0]))
-        conn.commit()
-        await query.message.reply_text(f"♻️ **일괄 판매 완료!** (+{total:,} G코인)")
+# ==========================================
+# 6. 실행 (Main)
+# ==========================================
 
-# --- 6. 가동 ---
 if __name__ == '__main__':
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_commands))
-    app.add_handler(CallbackQueryHandler(on_callback))
-    print("🚀 바카라&광산 마스터 시스템 가동 중...")
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("가입", join))
+    app.add_handler(CommandHandler("출석", checkin))
+    app.add_handler(CommandHandler("송금", transfer))
+    app.add_handler(CommandHandler("생성", create_money))
+    app.add_handler(CommandHandler("플", baccarat_bet))
+    app.add_handler(CommandHandler("뱅", baccarat_bet))
+    app.add_handler(CommandHandler("타이", baccarat_bet))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    print("봇 가동 중...")
     app.run_polling()
