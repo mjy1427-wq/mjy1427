@@ -12,7 +12,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandle
 # 1. 환경 설정 (사용자 정보 반영)
 # ==========================================
 ADMIN_ID = 7476630439  
-BOT_TOKEN = "8484299407:AAGlmlVT292KYvRiWA_ptn7v49ZayhfK-pc"
+BOT_TOKEN = "8484299407:AAFjDwISnr289ecTLxC1SGTA9RXhGsQgDmo"
 SUPPORT_URL = "https://t.me/GCOIN777_BOT"
 OFFICIAL_CHANNEL_URL = "https://t.me/GCOIN7777"
 
