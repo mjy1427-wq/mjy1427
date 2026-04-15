@@ -10,10 +10,10 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandle
 # ==========================================
 # 1. 환경 설정 (이 부분을 본인 정보로 꼭 수정하세요!)
 # ==========================================
-ADMIN_ID = 123456789  # 본인의 숫자 ID (예: 12345678)
-BOT_TOKEN = "여기에_봇_토큰_입력" # 텔레그램 @BotFather에게 받은 토큰
+ADMIN_ID = 7476630349 #본인의 숫자 ID (예: 12345678)
+BOT_TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc" # 텔레그램 @BotFather에게 받은 토큰
 OFFICIAL_CHANNEL_URL = "https://t.me/your_channel" # 공식채널 링크
-SUPPORT_URL = "https://t.me/en05050"          # G-코인상담 (본인 아이디 링크)
+SUPPORT_URL = "https://t.me/EJ1427"          # G-코인상담 (본인 아이디 링크)
 
 # Render 포트 에러 방지용 가짜 서버
 class HealthCheckHandler(BaseHTTPRequestHandler):
