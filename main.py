@@ -11,7 +11,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandle
 # 1. 환경 설정 (반드시 본인 정보로 수정!)
 # ==========================================
 ADMIN_ID = 7476630349  # 본인의 숫자 ID 입력 (따옴표 없이 숫자만)
-BOT_TOKEN = "8484299407:AAF9Ja2dM0vlHSnsooJsZtsWIw-ayU2dyaY" 
+BOT_TOKEN = "8484299407:AAGfYDpLhfS7eTIjsC16Fe6Bklqf6T22Gv0" 
 OFFICIAL_CHANNEL_URL = "https://t.me/GCOIN7777" 
 SUPPORT_URL = "https://t.me/GCOIN777_BOT"
 
