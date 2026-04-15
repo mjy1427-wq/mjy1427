@@ -10,12 +10,11 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandle
 # ==========================================
 # 1. 환경 설정 (반드시 본인 정보로 수정!)
 # ==========================================
-ADMIN_ID = 123456789  # 본인의 숫자 ID 입력 (따옴표 없이 숫자만)
-BOT_TOKEN = "여기에_봇_토큰_입력" 
-OFFICIAL_CHANNEL_URL = "https://t.me/your_channel" 
-SUPPORT_URL = "https://t.me/en05050"
-LETZBET_URL = "https://t.me/letzbet_link"
-AMHAENG_URL = "https://t.me/amhaeng_link"
+ADMIN_ID = 7476630349  # 본인의 숫자 ID 입력 (따옴표 없이 숫자만)
+BOT_TOKEN = "8484299407:AAF9Ja2dM0vlHSnsooJsZtsWIw-ayU2dyaY" 
+OFFICIAL_CHANNEL_URL = "https://t.me/GCOIN7777" 
+SUPPORT_URL = "https://t.me/GCOIN777_BOT"
+
 
 # ==========================================
 # 2. 광물 데이터 및 경제 설정
