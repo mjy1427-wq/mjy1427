@@ -10,19 +10,13 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandle
 ADMIN_ID = 7476630349 
 BOT_TOKEN = "8484299407:AAGfYDpLhfS7eTIjsC16Fe6Bklqf6T22Gv0" 
 DATA_FILE = "gcoin_ultra_final.json"
-SUPPORT_URL = "https://t.me/GCOIN777_BOT" 
-NOTICE_URL = "https://t.me/GCOIN7777"
-
-# 바카라 회차 관리
-game_room = {"is_open": False, "round_no": 1, "end_time": 0, "bets": []}
-baccarat_history = []
 
 MINING_DELAY = 40 
 minerals_config = {"아다만티움": 5000000, "다이아몬드": 3500000, "오리하르콘": 2500000, "미스릴": 1600000, "플래티넘": 1300000, "흑요석": 1100000, "금": 800000, "은": 600000, "티타늄": 500000, "철": 300000, "구리": 200000, "석탄": 100000, "돌": 30000, "모래": 20000, "자갈": 15000}
 TIERS = {"1": ["아다만티움", "다이아몬드", "오리하르콘"], "2": ["미스릴", "플래티넘", "흑요석"], "3": ["금", "은", "티타늄"], "4": ["철", "구리", "석탄"], "5": ["돌", "모래", "자갈"]}
 PICKAXE_MAX = {"나무": 200, "돌": 1000, "강철": 3000, "골드": 5000, "다이아": 7500, "아다만티움": 10000}
 
-# [바카라 52장 전체 데이터 - 절대 생략 없음]
+# [바카라 카드 데이터]
 FULL_DECK = [
     {'n': 'SP_10', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7Exp3mWoCRUfVj-ZE5CmN3IUjgtvGQAC2SYAAvCQ8VbM3lvO79VzBTsE'},
     {'n': 'HT_10', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7E5p3mVSE9Y_S9vS6_WAAKGhAACOv_4VpJmKq_Wz_FTOzsE'},
@@ -78,7 +72,11 @@ FULL_DECK = [
     {'n': 'CL_9', 's': 9, 'id': 'CAACAgUAAxkBAAEQ7EBp3mWGYNOoFfvUelUEqB__xWN40wACQxwAAqMu8FZUMsBrOgtazjsE'}
 ]
 
-# --- DB 처리 및 데이터 로드 ---
+baccarat_history = []
+
+# ==========================================
+# 2. 데이터 관리 및 유틸리티
+# ==========================================
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         users = {int(k): v for k, v in json.load(f).items()}
@@ -90,7 +88,7 @@ def save_db():
 
 def get_u(uid, name, uname):
     if uid not in users:
-        users[uid] = {"name": name, "username": uname or "익명", "money": 100000, "pickaxe": "나무", "durability": 200, "inventory": {m: 0 for m in minerals_config}, "last_mine": 0, "last_check": ""}
+        users[uid] = {"name": name, "username": uname or "익명", "money": 100000, "joined": True, "pickaxe": "나무", "durability": 200, "inventory": {m: 0 for m in minerals_config}, "last_mine": 0, "last_check": ""}
         save_db()
     return users[uid]
 
@@ -103,116 +101,140 @@ def get_road_map():
     return "<b>📊 바카라 그림장 (최근 50회)</b>\n" + "\n".join("".join(row) for row in grid)
 
 # ==========================================
-# 2. 실시간 멀티 바카라 엔진
-# ==========================================
-async def process_baccarat(context: ContextTypes.DEFAULT_TYPE, chat_id):
-    global game_room
-    round_no = game_room["round_no"]
-    
-    # 1. 베팅 마감
-    await context.bot.send_message(chat_id, f"<b>🚨 [제 {round_no}회차] 베팅 마감!</b>", parse_mode="HTML")
-    
-    # 2. 결과 예고 (5초)
-    await asyncio.sleep(5)
-    await context.bot.send_message(chat_id, "<b>🔔 5초 후 결과를 발표합니다!</b>", parse_mode="HTML")
-    await asyncio.sleep(2)
-
-    deck = FULL_DECK.copy(); random.shuffle(deck)
-    p, b = [deck.pop(), deck.pop()], [deck.pop(), deck.pop()]
-    ps, bs = sum(c['s'] for c in p)%10, sum(c['s'] for c in b)%10
-
-    # 3. 카드 오픈 연출
-    await context.bot.send_message(chat_id, "<b>[Player Card]</b>", parse_mode="HTML")
-    for c in p: await context.bot.send_sticker(chat_id, c['id'])
-    await asyncio.sleep(1)
-    await context.bot.send_message(chat_id, "<b>[Banker Card]</b>", parse_mode="HTML")
-    for c in b: await context.bot.send_sticker(chat_id, c['id'])
-
-    # [바카라 서드 카드 룰]
-    if ps <= 5:
-        await asyncio.sleep(1); tc = deck.pop(); p.append(tc); ps = sum(c['s'] for c in p)%10
-        await context.bot.send_message(chat_id, "🃏 플레이어 추가 카드!"); await context.bot.send_sticker(chat_id, tc['id'])
-    if bs <= 5:
-        await asyncio.sleep(1); tc = deck.pop(); b.append(tc); bs = sum(c['s'] for c in b)%10
-        await context.bot.send_message(chat_id, "🃏 뱅커 추가 카드!"); await context.bot.send_sticker(chat_id, tc['id'])
-
-    # 4. 정산
-    win = "P" if ps > bs else "B" if bs > ps else "T"
-    baccarat_history.append(win)
-    admin = get_u(ADMIN_ID, "관리자", "admin")
-    
-    res_msg = f"<b>🏆 제 {round_no}회차 결과: {win} ({ps}:{bs})</b>\n\n"
-    for bet in game_room["bets"]:
-        u = users[bet['uid']]
-        rate = 8 if win=="T" else (1.95 if win=="B" else 2)
-        if (bet['side']=="P" and win=="P") or (bet['side']=="B" and win=="B") or (bet['side']=="T" and win=="T"):
-            w_amt = int(bet['amount'] * rate); u["money"] += w_amt; admin["money"] -= w_amt
-            res_msg += f"✅ {u['name']}: +{w_amt:,} G\n"
-        else: res_msg += f"❌ {u['name']}: 낙첨\n"
-    
-    res_msg += f"\n{get_road_map()}"
-    await context.bot.send_message(chat_id, res_msg, parse_mode="HTML")
-    
-    game_room["is_open"] = False; game_room["bets"] = []; game_room["round_no"] += 1; save_db()
-
-# ==========================================
-# 3. 메인 핸들러
+# 3. 명령어 핸들러
 # ==========================================
 async def handle_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global game_room
     if not update.message or not update.message.text: return
-    text, uid, chat_id = update.message.text.strip(), update.effective_user.id, update.message.chat_id
+    text, uid = update.message.text.strip(), update.effective_user.id
     user = get_u(uid, update.effective_user.first_name, update.effective_user.username)
     admin = get_u(ADMIN_ID, "관리자", "admin")
 
-    # --- 관리자 전용 ---
+    # --- [관리자 전용] ---
     if uid == ADMIN_ID:
         if text == ".관리자정보":
             total_money = sum(u['money'] for u in users.values())
-            msg = (f"<b>🏦 하우스 운영 현황</b>\n\n👤 유저: {len(users)}명\n💰 총 유통량: {total_money:,} G\n🏢 금고 잔액: {user['money']:,} G")
+            msg = f"<b>🏦 하우스 운영 현황</b>\n\n👤 전체 유저: {len(users)}명\n💰 총 자산: {total_money:,} G\n🏢 누적 수익: {user['money']:,} G"
             return await update.message.reply_html(msg)
+        elif text.startswith(".지급"):
+            try:
+                _, target_id, amt = text.split()
+                target_id, amt = int(target_id), int(amt)
+                if target_id in users:
+                    users[target_id]["money"] += amt; save_db()
+                    return await update.message.reply_text(f"✅ {target_id}에게 {amt:,}G 지급 완료")
+            except: pass
         elif text.startswith(".공지"):
-            msg = text.replace(".공지", "").strip()
-            for tid in users:
-                try: await context.bot.send_message(tid, f"<b>📢 공지:</b> {msg}", parse_mode="HTML")
+            notice = text.replace(".공지", "").strip()
+            for u_id in users:
+                try: await context.bot.send_message(u_id, f"<b>📢 [전체 공지]</b>\n\n{notice}", parse_mode="HTML")
                 except: pass
-            return
+            return await update.message.reply_text("✅ 공지 발송 완료")
 
-    # --- 유저 명령어 ---
-    if text.startswith((".플", ".뱅", ".타")):
-        try:
-            side = "P" if ".플" in text else "B" if ".뱅" in text else "T"
-            amt = int(text.split()[1])
-            if user["money"] < amt: return await update.message.reply_text("❌ 잔액 부족")
-
-            if not game_room["is_open"]:
-                game_room["is_open"] = True
-                game_room["end_time"] = time.time() + 30
-                asyncio.create_task(asyncio.sleep(30)).add_done_callback(lambda _: asyncio.create_task(process_baccarat(context, chat_id)))
-                await update.message.reply_html(f"<b>🎰 제 {game_room['round_no']}회차 베팅 시작!</b>\n30초 후 마감됩니다.")
-
-            user["money"] -= amt; admin["money"] += amt; save_db()
-            game_room["bets"].append({"uid": uid, "side": side, "amount": amt})
-            await update.message.reply_text(f"✅ {side} {amt:,}G 완료!")
-        except: pass
+    # --- [유저 명령어] ---
+    if text == ".출석":
+        today = str(date.today())
+        if user.get("last_check") == today: return await update.message.reply_text("오늘 이미 완료!")
+        user["money"] += 50000; user["last_check"] = today; save_db()
+        await update.message.reply_text("✅ 출석 보상 50,000 G 지급!")
+    
+    elif text == ".랭킹":
+        top = sorted(users.values(), key=lambda x: x['money'], reverse=True)[:10]
+        msg = "<b>🏆 자산 순위 TOP 10</b>\n\n" + "\n".join(f"{i+1}. {u['name']}: {u['money']:,} G" for i, u in enumerate(top))
+        await update.message.reply_html(msg)
 
     elif text == ".채광":
         now = time.time()
-        if now - user["last_mine"] < MINING_DELAY: return await update.message.reply_text(f"⏳ {int(MINING_DELAY-(now-user['last_mine']))}초 대기")
-        if user["durability"] <= 0: return await update.message.reply_text("⛏ 내구도 0!")
+        if now - user["last_mine"] < MINING_DELAY:
+            return await update.message.reply_text(f"⏳ 대기: {int(MINING_DELAY - (now - user['last_mine']))}초")
+        if user["durability"] <= 0: return await update.message.reply_text("⛏ 곡괭이 파손! .수리 필요")
         tier = random.choices(["5","4","3","2","1"], weights=[50, 30, 15, 4, 1])[0]
         item = random.choice(TIERS[tier])
         user["inventory"][item] += 1; user["durability"] -= 1; user["last_mine"] = now; save_db()
-        await update.message.reply_html(f"⛏ <b>{item}</b> 획득! (🔧 {user['durability']}/{PICKAXE_MAX[user['pickaxe']]})")
+        await update.message.reply_html(f"⛏ <b>{item}</b> 획득! ({minerals_config[item]:,} G)\n🔧 내구도: {user['durability']}/{PICKAXE_MAX[user['pickaxe']]}")
 
-    elif text in [".문의", ".상담"]:
-        await update.message.reply_html("상담채널", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("센터 이동", url=SUPPORT_URL)]]))
-    elif text in [".공지", ".채널"]:
-        await update.message.reply_html("공지채널", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("채널 입장", url=NOTICE_URL)]]))
+    elif text.startswith((".플", ".뱅", ".타")):
+        try:
+            cmd, bet = text.split()[0], int(text.split()[1])
+            if user["money"] < bet: return await update.message.reply_text("잔액 부족")
+            user["money"] -= bet; admin["money"] += bet; save_db()
+            deck = FULL_DECK.copy(); random.shuffle(deck)
+            p = [deck.pop(), deck.pop()]; b = [deck.pop(), deck.pop()]
+            ps, bs = sum(c['s'] for c in p)%10, sum(c['s'] for c in b)%10
+            await update.message.reply_html("<b>🎴 카드 공개 시작</b>")
+            for c in p: await context.bot.send_sticker(uid, c['id'])
+            await asyncio.sleep(1)
+            for c in b: await context.bot.send_sticker(uid, c['id'])
+            if ps <= 5:
+                tc = deck.pop(); p.append(tc); ps = sum(c['s'] for c in p)%10
+                await asyncio.sleep(0.5); await context.bot.send_sticker(uid, tc['id'])
+            if bs <= 5:
+                tc = deck.pop(); b.append(tc); bs = sum(c['s'] for c in b)%10
+                await asyncio.sleep(0.5); await context.bot.send_sticker(uid, tc['id'])
+            win = "P" if ps > bs else "B" if bs > ps else "T"
+            baccarat_history.append(win)
+            res = f"\n{get_road_map()}\n\n결과: {ps}:{bs} ({win})\n"
+            if (cmd==".플" and win=="P") or (cmd==".뱅" and win=="B") or (cmd==".타" and win=="T"):
+                rate = 8 if win=="T" else (1.95 if win=="B" else 2)
+                win_amt = int(bet * rate)
+                user["money"] += win_amt; admin["money"] -= win_amt
+                res += f"🏆 <b>적중 +{win_amt:,} G</b>"
+            else: res += "❌ 낙첨"
+            save_db(); await update.message.reply_html(res)
+        except: pass
 
+    elif text == ".판매":
+        btns = [[InlineKeyboardButton(f"{t}티어", callback_data=f"s_{t}") for t in ["1","2","3"]],
+                [InlineKeyboardButton("4티어", callback_data="s_4"), InlineKeyboardButton("5티어", callback_data="s_5")],
+                [InlineKeyboardButton("💰 전체 판매", callback_data="s_all")]]
+        await update.message.reply_html("<b>📦 판매 메뉴</b>", reply_markup=InlineKeyboardMarkup(btns))
+
+async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    user = users.get(q.from_user.id)
+    if not user: return
+    data, sold = q.data, 0
+    if data == "s_all":
+        for m, c in user["inventory"].items(): sold += c * minerals_config[m]; user["inventory"][m] = 0
+    elif data.startswith("s_"):
+        for m in TIERS[data[2:]]: sold += user["inventory"][m] * minerals_config[m]; user["inventory"][m] = 0
+    user["money"] += sold; save_db(); await q.answer(f"+{sold:,} G"); await q.edit_message_text(f"✅ 판매 완료: +{sold:,} G")
+
+# ==========================================
+# 4. Render 포트 에러 해결용 웹 서버
+# ==========================================
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"Bot is Running")
+    def log_message(self, format, *args): return
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    httpd = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"✅ Health Check Server started on port {port}")
+    httpd.serve_forever()
+
+# ==========================================
+# 5. 메인 실행부
+# ==========================================
 async def main():
+    # 웹 서버를 별도 스레드에서 실행 (Render 포트 감지용)
+    threading.Thread(target=run_health_server, daemon=True).start()
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_commands))
-    await app.initialize(); await app.updater.start_polling(); await app.start(); await asyncio.Event().wait()
+    app.add_handler(CallbackQueryHandler(on_callback))
 
-if __name__ == '__main__': asyncio.run(main())
+    print("🤖 Telegram Bot Starting...")
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await asyncio.Event().wait()
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
