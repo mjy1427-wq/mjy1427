@@ -18,7 +18,7 @@ OFFICIAL_CHANNEL_URL = "https://t.me/GCOIN7777"
 
 # ==========================================
 # 2. 바카라 52장 무삭제 풀덱
-# ==========================================
+# ==================================ㅓ========
 BACCARAT_DECK = [
     {'name': 'SP_10', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7Exp3mWoCRUfVj-ZE5CmN3IUjgtvGQAC2SYAAvCQ8VbM3lvO79VzBTsE'},
     {'name': 'HT_10', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7E5p3mVSE9Y_S9vS6_WAAKGhAACOv_4VpJmKq_Wz_FTOzsE'},
