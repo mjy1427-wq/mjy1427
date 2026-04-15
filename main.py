@@ -2,17 +2,43 @@ import random
 import time
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
 # ==========================================
-# 1. 환경 설정 (반드시 본인 정보로 수정)
+# 1. 환경 설정 (본인 정보로 수정 필수)
 # ==========================================
-ADMIN_ID = 7476630349  # 본인의 텔레그램 숫자 ID 입력
-BOT_TOKEN = "8771125252:AAFbKHLcDM2KhLR3MIp6ZGOnFQQWlIQUIlc" # BotFather에게 받은 토큰 입력
+ADMIN_ID = 123456789  # 여기에 본인의 숫자 ID를 넣으세요 (예: 61234567)
+BOT_TOKEN = "여기에_토큰_입력" # BotFather에게 받은 토큰
 
 # ==========================================
-# 2. 데이터베이스 (바카라 덱 & 광물 설정)
+# 2. 데이터베이스 설정 (곡괭이, 광물, 바카라 덱)
 # ==========================================
+PICKAXE_SHOP_DATA = {
+    "Wood": {"name": "나무 곡괭이", "price": 1000000, "durability": 100},
+    "Stone": {"name": "돌 곡괭이", "price": 5000000, "durability": 300},
+    "Iron": {"name": "철 곡괭이", "price": 15000000, "durability": 500},
+    "Gold": {"name": "금 곡괭이", "price": 50000000, "durability": 1000},
+    "Diamond": {"name": "다이아 곡괭이", "price": 250000000, "durability": 5000},
+    "Netherite": {"name": "네더라이트 곡괭이", "price": 1000000000, "durability": 10000}
+}
+
+minerals = {
+    "아다만티움": 500000, "다이아몬드": 350000, "오리하르콘": 250000,
+    "미스릴": 160000, "플래티넘": 130000, "흑요석": 110000,
+    "금": 80000, "은": 60000, "티타늄": 50000,
+    "철": 30000, "구리": 20000, "석탄": 10000,
+    "돌": 3000, "모래": 2000, "자갈": 1500
+}
+
+tiers = [
+    (1, ["아다만티움","다이아몬드","오리하르콘"], 2),
+    (2, ["미스릴","플래티넘","흑요석"], 8),
+    (3, ["금","은","티타늄"], 20),
+    (4, ["철","구리","석탄"], 30),
+    (5, ["돌","모래","자갈"], 40)
+]
+
+# 사용자님이 제공하신 바카라 덱 (코드 보존)
 BACCARAT_DECK = [
     {'name': 'SP_10', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7Exp3mWoCRUfVj-ZE5CmN3IUjgtvGQAC2SYAAvCQ8VbM3lvO79VzBTsE'},
     {'name': 'HT_10', 'score': 0, 'file_id': 'CAACAgUAAxkBAAEQ7E5p3mVSE9Y_S9vS6_WAAKGhAACOv_4VpJmKq_Wz_FTOzsE'},
@@ -68,260 +94,244 @@ BACCARAT_DECK = [
     {'name': 'CL_9', 'score': 9, 'file_id': 'CAACAgUAAxkBAAEQ7EBp3mWGYNOoFfvUelUEqB__xWN40wACQxwAAqMu8FZUMsBrOgtazjsE'},
 ]
 
-minerals = {
-    "아다만티움": 500000, "다이아몬드": 350000, "오리하르콘": 250000,
-    "미스릴": 160000, "플래티넘": 130000, "흑요석": 110000,
-    "금": 80000, "은": 60000, "티타늄": 50000,
-    "철": 30000, "구리": 20000, "석탄": 10000,
-    "돌": 3000, "모래": 2000, "자갈": 1500
-}
-
-tiers = [
-    (1, ["아다만티움","다이아몬드","오리하르콘"], 2),
-    (2, ["미스릴","플래티넘","흑요석"], 8),
-    (3, ["금","은","티타늄"], 20),
-    (4, ["철","구리","석탄"], 30),
-    (5, ["돌","모래","자갈"], 40)
-]
-
-# ===== 통합 데이터 저장소 =====
 users = {}
-admin_vault = 0 # 유저들이 잃은 돈이 쌓이는 금고
+admin_vault = 0 # 시스템 금고
 
 def get_user(user_id, name):
     if user_id not in users:
         users[user_id] = {
-            "name": name, "money": 0, "inv": {}, "pity": 0,
-            "mine_count": 0, "last_checkin": "", "joined": False
+            "name": name, "money": 0, "inv": {}, "mine_count": 0,
+            "last_checkin": "", "joined": False, "pickaxe": "Wood", "durability": 100
         }
     return users[user_id]
 
-# ==========================================
-# 3. 바카라 로직 함수
-# ==========================================
 def calculate_score(hand):
     return sum(card['score'] for card in hand) % 10
 
 # ==========================================
-# 4. 명령어 핸들러 (G COIN BOT 스타일 디자인)
+# 3. 핵심 핸들러: 마침표(.) 기반 한글 명령어 처리
 # ==========================================
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = (
-        "┏━━━━ G COIN BOT ━━━━┓\n"
-        "┃\n"
-        "┃ 🏁 **기본 시작**\n"
-        "┃ • /가입 : 정착금 10만 지급\n"
-        "┃ • /출석 : 매일 30만 지급\n"
-        "┃\n"
-        "┃ ⛏ **채광 및 경제**\n"
-        "┃ • /채광 : 광물 캐기\n"
-        "┃ • /인벤 : 보유 광물 확인\n"
-        "┃ • /판매 : 광물 판매 버튼 생성\n"
-        "┃ • /랭킹 : 보유 순위 (TOP 10)\n"
-        "┃\n"
-        "┃ 👤 **카지노 & 사회**\n"
-        "┃ • /플, /뱅, /타이 [금액] : 배팅\n"
-        "┃ • /내정보 : 본인 상태 확인\n"
-        "┃ • /송금 [금액] : 답장으로 송금\n"
-        "┃\n"
-        "┗━━━━━━━━━━━━━━━━━━┛"
-    )
-    await update.message.reply_text(msg, parse_mode='Markdown')
-
-async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user(update.effective_user.id, update.effective_user.first_name)
-    if user["joined"]:
-        res = "❌ 이미 가입된 계정입니다."
-    else:
-        user["joined"] = True
-        user["money"] += 100000
-        res = "✅ 가입 완료! 10만 코인 지급"
-    msg = f"┏━━━━ G COIN BOT ━━━━┓\n┃\n┃ {res}\n┃ 💰 잔액: {user['money']:,}\n┃\n┗━━━━━━━━━━━━━━━━━━┛"
-    await update.message.reply_text(msg, parse_mode='Markdown')
-
-async def checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user(update.effective_user.id, update.effective_user.first_name)
-    today = datetime.now().strftime("%Y-%m-%d")
-    if user["last_checkin"] == today:
-        res = "❌ 오늘은 이미 출석하셨습니다."
-    else:
-        user["money"] += 300000
-        user["last_checkin"] = today
-        res = "✅ 출석 완료! 30만 코인 지급"
-    msg = f"┏━━━━ G COIN BOT ━━━━┓\n┃\n┃ {res}\n┃ 💰 현재 잔액: {user['money']:,}\n┃\n┗━━━━━━━━━━━━━━━━━━┛"
-    await update.message.reply_text(msg, parse_mode='Markdown')
-
-async def mine_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user(update.effective_user.id, update.effective_user.first_name)
-    user["mine_count"] += 1
+async def handle_korean_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global admin_vault
+    if not update.message or not update.message.text: return
     
-    roll = random.uniform(0, 100)
-    total = 0
-    selected = "자갈"
-    for tier, items, chance in tiers:
-        total += chance
-        if roll <= total:
-            selected = random.choice(items)
-            break
-    
-    user["inv"][selected] = user["inv"].get(selected, 0) + 1
-    msg = (
-        f"┏━━━━ G COIN BOT ━━━━┓\n"
-        f"┃\n"
-        f"┃ ⛏ **채광 완료!**\n"
-        f"┃ 💎 획득: {selected}\n"
-        f"┃ 💰 가치: {minerals[selected]:,} 코인\n"
-        f"┃ 📊 누적 횟수: {user['mine_count']}회\n"
-        f"┃\n"
-        f"┗━━━━━━━━━━━━━━━━━━┛"
-    )
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    text = update.message.text.strip()
+    if not text.startswith("."): return 
 
-# [바카라 통합 핸들러]
-async def baccarat_bet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    user = get_user(user_id, user_name)
+    
+    cmd_parts = text[1:].split()
+    if not cmd_parts: return
+    cmd = cmd_parts[0]
+    args = cmd_parts[1:]
+
+    # --- [ 유저 일반 명령어 ] ---
+    if cmd == "명령어" or cmd == "도움말":
+        msg = (
+            "┏━━━━ G COIN BOT ━━━━┓\n"
+            "┃ .가입 : 시작금 10만 지급\n"
+            "┃ .출석 : 매일 30만 지급\n"
+            "┃ .채광 : 광물 캐기 (내구도 소모)\n"
+            "┃ .상점 : 곡괭이 구매 및 수리\n"
+            "┃ .랭킹 : 부자 순위 확인\n"
+            "┃ .송금 [금액] : 유저에게 돈 보내기(수수료 6%)\n"
+            "┃ .플/뱅/타이 [금액] : 바카라 베팅\n"
+            "┃ .내정보 : 내 상태 확인\n"
+            "┗━━━━━━━━━━━━━━━━━━┛"
+        )
+        await update.message.reply_text(msg)
+
+    elif cmd == "가입":
+        if user["joined"]:
+            await update.message.reply_text("❌ 이미 가입된 계정입니다.")
+        else:
+            user["joined"] = True
+            user["money"] += 100000
+            await update.message.reply_text(f"✅ 가입 완료! 💰 잔액: {user['money']:,}")
+
+    elif cmd == "출석":
+        today = datetime.now().strftime("%Y-%m-%d")
+        if user["last_checkin"] == today:
+            await update.message.reply_text("❌ 오늘은 이미 출석하셨습니다.")
+        else:
+            user["money"] += 300000
+            user["last_checkin"] = today
+            await update.message.reply_text(f"✅ 출석 완료! 30만 코인 지급\n💰 잔액: {user['money']:,}")
+
+    elif cmd == "채광":
+        if user["durability"] <= 0:
+            await update.message.reply_text("❌ 곡괭이가 파손되었습니다! .상점에서 새로 구매하세요.")
+            return
+        
+        user["durability"] -= 1
+        user["mine_count"] += 1
+        
+        roll = random.uniform(0, 100)
+        total, selected = 0, "자갈"
+        for t, items, chance in tiers:
+            total += chance
+            if roll <= total:
+                selected = random.choice(items)
+                break
+        
+        user["inv"][selected] = user["inv"].get(selected, 0) + 1
+        await update.message.reply_text(
+            f"┏━━━━ G COIN BOT ━━━━┓\n┃ ⛏ 채광 완료!\n┃ 💎 획득: {selected}\n┃ 🔧 내구도: {user['durability']}\n┗━━━━━━━━━━━━━━━━━━┛"
+        )
+
+    elif cmd == "상점":
+        shop_text = "⛏ **곡괭이 상점**\n━━━━━━━━━━━━━━\n"
+        keyboard = []
+        for p_id, data in PICKAXE_SHOP_DATA.items():
+            shop_text += f"**{data['name']}** - {data['price']:,} 코인\n"
+            keyboard.append([InlineKeyboardButton(f"💰 {data['name']} 구매", callback_data=f"buy_{p_id}")])
+        await update.message.reply_text(shop_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+    elif cmd == "송금":
+        if not update.message.reply_to_message or not args:
+            await update.message.reply_text("❌ 송금 대상을 지정(답장)하고 금액을 적어주세요.")
+            return
+        try:
+            amount = int(args[0])
+            if amount <= 0: raise ValueError
+        except:
+            await update.message.reply_text("❌ 올바른 송금 금액을 입력하세요.")
+            return
+
+        fee = int(amount * 0.06)
+        actual_send = amount - fee
+        target_id = update.message.reply_to_message.from_user.id
+        if user["money"] < amount:
+            await update.message.reply_text("❌ 잔액이 부족합니다.")
+        elif user_id == target_id:
+            await update.message.reply_text("❌ 본인에게 송금할 수 없습니다.")
+        else:
+            target_user = get_user(target_id, update.message.reply_to_message.from_user.first_name)
+            user["money"] -= amount
+            target_user["money"] += actual_send
+            admin_vault += fee
+            await update.message.reply_text(f"💸 송금 완료! (수수료 6% 차감)\n받는이: {target_user['name']}\n실전달: {actual_send:,} 코인")
+
+    elif cmd == "랭킹":
+        rank_list = {uid: udata for uid, udata in users.items() if uid != ADMIN_ID}
+        if not rank_list:
+            await update.message.reply_text("📊 아직 유저가 없습니다.")
+            return
+        sorted_rank = sorted(rank_list.items(), key=lambda x: x[1]['money'], reverse=True)[:10]
+        msg = "🏆 **부자 랭킹 TOP 10**\n━━━━━━━━━━━━━━\n"
+        for i, (uid, udata) in enumerate(sorted_rank, 1):
+            msg += f"{i}위. {udata['name']} — {udata['money']:,} 코인\n"
+        await update.message.reply_text(msg)
+
+    elif cmd == "내정보":
+        await update.message.reply_text(
+            f"👤 이름: {user['name']}\n"
+            f"💰 잔액: {user['money']:,} 코인\n"
+            f"🔨 곡괭이: {user['pickaxe']}\n"
+            f"🔧 내구도: {user['durability']}"
+        )
+
+    elif cmd in ["플", "뱅", "타이"]:
+        if not args: return
+        try:
+            bet_amt = int(args[0])
+            await baccarat_logic(update, context, cmd, bet_amt)
+        except:
+            await update.message.reply_text("❌ 배팅 금액을 숫자로 입력하세요.")
+
+    # --- [ 관리자 전용 명령어 ] ---
+    if user_id == ADMIN_ID:
+        if cmd == "생성":
+            if not update.message.reply_to_message or not args:
+                await update.message.reply_text("❌ 생성 대상을 지정(답장)하고 금액을 적어주세요.")
+                return
+            amount = int(args[0])
+            target_id = update.message.reply_to_message.from_user.id
+            target_user = get_user(target_id, update.message.reply_to_message.from_user.first_name)
+            target_user["money"] += amount
+            await update.message.reply_text(f"✨ {target_user['name']}님께 {amount:,} 코인을 생성했습니다.")
+        elif cmd == "관리자정보":
+            await update.message.reply_text(f"👑 **관리자 센터**\n금고수익: {admin_vault:,}\n총 유저수: {len(users)}명")
+
+# ==========================================
+# 4. 바카라 게임 핵심 로직 (스티커 포함)
+# ==========================================
+async def baccarat_logic(update: Update, context: ContextTypes.DEFAULT_TYPE, bet_type_kor, amount):
     global admin_vault
     user = get_user(update.effective_user.id, update.effective_user.first_name)
     chat_id = update.effective_chat.id
-    cmd_text = update.message.text.split()
-    
-    if len(cmd_text) < 2: return
-    try:
-        bet_amount = int(cmd_text[1])
-        if bet_amount <= 0 or user["money"] < bet_amount: raise ValueError
-    except:
-        await update.message.reply_text("❌ 잔액 부족 또는 올바른 금액을 입력하세요.")
+    if user["money"] < amount:
+        await update.message.reply_text("❌ 코인이 부족합니다.")
         return
 
-    bet_type = "player" if cmd_text[0] == "/플" else "banker" if cmd_text[0] == "/뱅" else "tie"
-    user["money"] -= bet_amount
-    
-    await update.message.reply_text(f"🃏 {bet_type.upper()}에 {bet_amount:,}원 배팅 완료!")
-
+    user["money"] -= amount
     deck = BACCARAT_DECK.copy()
     random.shuffle(deck)
+    
     p_hand = [deck.pop(), deck.pop()]
     b_hand = [deck.pop(), deck.pop()]
-
-    # 카드 오픈 애니메이션 (스티커 발송)
+    
+    # 카드 스티커 전송
     await context.bot.send_message(chat_id, "👤 플레이어 카드:")
     for c in p_hand: await context.bot.send_sticker(chat_id, c['file_id'])
     await context.bot.send_message(chat_id, "🏦 뱅커 카드:")
     for c in b_hand: await context.bot.send_sticker(chat_id, c['file_id'])
 
     p_score, b_score = calculate_score(p_hand), calculate_score(b_hand)
-
-    # 3구 규칙 적용
-    if p_score < 8 and b_score < 8:
-        if p_score <= 5:
-            p_third = deck.pop()
-            p_hand.append(p_third)
-            await context.bot.send_message(chat_id, "👤 플레이어 추가 카드!")
-            await context.bot.send_sticker(chat_id, p_third['file_id'])
-            p_score = calculate_score(p_hand)
-        
-        # 뱅커 규칙 간략화 적용
-        if b_score <= 5: 
-            b_third = deck.pop()
-            b_hand.append(b_third)
-            await context.bot.send_message(chat_id, "🏦 뱅커 추가 카드!")
-            await context.bot.send_sticker(chat_id, b_third['file_id'])
-            b_score = calculate_score(b_hand)
-
+    
+    # 3구 규칙 생략 (단순 결과 처리)
     winner = "player" if p_score > b_score else "banker" if b_score > p_score else "tie"
     
-    if bet_type == winner:
+    bet_map = {"플": "player", "뱅": "banker", "타이": "tie"}
+    if bet_map[bet_type_kor] == winner:
         rate = 2 if winner == "player" else 1.95 if winner == "banker" else 8
-        win_money = int(bet_amount * rate)
+        win_money = int(amount * rate)
         user["money"] += win_money
-        res_msg = f"✅ 당첨! {win_money:,}원 획득!"
+        res_text = f"✅ 당첨! {win_money:,} 코인 획득"
     else:
-        admin_vault += bet_amount # 낙첨 시 관리자 금고로 이동
-        res_msg = "❌ 미적중... (베팅금 회수)"
+        admin_vault += amount
+        res_text = "❌ 낙첨되었습니다."
 
-    final_box = (
-        f"┏━━━━ G COIN BOT ━━━━┓\n"
-        f"┃\n"
-        f"┃ 🏁 **바카라 결과**\n"
+    await update.message.reply_text(
+        f"┏━━━━ BACCARAT ━━━━┓\n"
         f"┃ 결과: {winner.upper()} ({p_score}:{b_score})\n"
-        f"┃ {res_msg}\n"
-        f"┃ 💰 잔액: {user['money']:,}원\n"
-        f"┃\n"
+        f"┃ {res_text}\n"
+        f"┃ 💰 잔액: {user['money']:,}\n"
         f"┗━━━━━━━━━━━━━━━━━━┛"
     )
-    await update.message.reply_text(final_box, parse_mode='Markdown')
-
-async def my_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user(update.effective_user.id, update.effective_user.first_name)
-    msg = (
-        f"┏━━━━ G COIN BOT ━━━━┓\n"
-        f"┃\n"
-        f"┃ 👤 **유저 정보**\n"
-        f"┃ • 이름: {user['name']}\n"
-        f"┃ • 잔액: {user['money']:,} 코인\n"
-        f"┃ • 채광: {user['mine_count']}회\n"
-        f"┃\n"
-        f"┗━━━━━━━━━━━━━━━━━━┛"
-    )
-    await update.message.reply_text(msg, parse_mode='Markdown')
-
-async def admin_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    msg = (
-        f"┏━━━━ ADMIN SYSTEM ━━━━┓\n"
-        f"┃\n"
-        f"┃ 👑 **관리자 전용 정보**\n"
-        f"┃ • 금고 잔액: {admin_vault:,} 코인\n"
-        f"┃ • 총 유저수: {len(users)}명\n"
-        f"┃\n"
-        f"┗━━━━━━━━━━━━━━━━━━━┛"
-    )
-    await update.message.reply_text(msg, parse_mode='Markdown')
-
-async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user(update.effective_user.id, update.effective_user.first_name)
-    if not user["inv"]:
-        await update.message.reply_text("❌ 판매할 광물이 없습니다.")
-        return
-    keyboard = [
-        [InlineKeyboardButton("1티어", callback_data="sell_1"), InlineKeyboardButton("2티어", callback_data="sell_2"),
-         InlineKeyboardButton("3티어", callback_data="sell_3"), InlineKeyboardButton("4티어", callback_data="sell_4")],
-        [InlineKeyboardButton("5티어", callback_data="sell_5"), InlineKeyboardButton("전체판매", callback_data="sell_all")]
-    ]
-    await update.message.reply_text("💰 **판매할 등급을 선택하세요.**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user = get_user(query.from_user.id, query.from_user.first_name)
-    if query.data.startswith("sell_"):
-        total = 0
-        if query.data == "sell_all":
-            total = sum(minerals[m] * c for m, c in user["inv"].items())
-            user["inv"] = {}
-        else:
-            t_num = int(query.data.split("_")[1])
-            for m in list(user["inv"].keys()):
-                if m in tiers[t_num-1][1]:
-                    total += minerals[m] * user["inv"].pop(m)
-        user["money"] += total
-        await query.edit_message_text(f"💰 판매 완료: {total:,} 코인 지급됨.")
 
 # ==========================================
-# 5. 실행부 (Main)
+# 5. 상점 구매 핸들러
+# ==========================================
+async def shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = get_user(query.from_user.id, query.from_user.first_name)
+    pick_id = query.data.replace("buy_", "")
+    
+    if pick_id in PICKAXE_SHOP_DATA:
+        price = PICKAXE_SHOP_DATA[pick_id]["price"]
+        if user["money"] >= price:
+            user["money"] -= price
+            user["pickaxe"] = PICKAXE_SHOP_DATA[pick_id]["name"]
+            user["durability"] = PICKAXE_SHOP_DATA[pick_id]["durability"]
+            await query.edit_message_text(f"✅ {PICKAXE_SHOP_DATA[pick_id]['name']} 장착 완료!")
+        else:
+            await query.answer("❌ 코인이 부족합니다.", show_alert=True)
+
+# ==========================================
+# 6. 실행부
 # ==========================================
 if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("명령어", help_command))
-    app.add_handler(CommandHandler("가입", join))
-    app.add_handler(CommandHandler("출석", checkin))
-    app.add_handler(CommandHandler("채광", mine_command))
-    app.add_handler(CommandHandler("플", baccarat_bet))
-    app.add_handler(CommandHandler("뱅", baccarat_bet))
-    app.add_handler(CommandHandler("타이", baccarat_bet))
-    app.add_handler(CommandHandler("내정보", my_info))
-    app.add_handler(CommandHandler("판매", sell_command))
-    app.add_handler(CommandHandler("관리자정보", admin_info))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    print("G COIN BOT + 바카라 통합 시스템 가동 중...")
+    
+    # 텍스트 핸들러 등록 (마침표 명령어 감지)
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_korean_commands))
+    
+    # 버튼 클릭 핸들러 등록
+    app.add_handler(CallbackQueryHandler(shop_callback))
+    
+    print("G COIN BOT + 바카라 통합 시스템 가동 시작...")
     app.run_polling()
