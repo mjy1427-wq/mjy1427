@@ -1,201 +1,340 @@
-import random, os, threading, asyncio, json, time
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from datetime import datetime, date
+import random
+import json
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
-# ==========================================
-# 1. 설정 및 데이터베이스
-# ==========================================
-ADMIN_ID = 7476630349 
-BOT_TOKEN = "8484299407:AAGfYDpLhfS7eTIjsC16Fe6Bklqf6T22Gv0" 
-DATA_FILE = "gcoin_ultra_final.json"
-LOGO_ID = "AgACAgUAAxkBAAEY9Exp3mX8S84P8f_1iZ...S2QQAAtseAALSG3VY_VfUv5nFjTseAgACAgUAAwE"
-COIN_CHANNEL = "https://t.me/GCOIN7777"
-SUPPORT_LINK = "https://t.me/GCOIN777_BOT"
+# =========================
+# 🔐 CONFIG
+# =========================
+TOKEN = "YOUR_BOT_TOKEN"
+ADMIN_ID = 7476630349
 
-minerals_config = {"아다만티움": 5000000, "다이아몬드": 3500000, "오리하르콘": 2500000, "미스릴": 1600000, "플래티넘": 1300000, "흑요석": 1100000, "금": 800000, "은": 600000, "티타늄": 500000, "철": 300000, "구리": 200000, "석탄": 100000, "돌": 30000, "모래": 20000, "자갈": 15000}
-TIERS = {"1": ["아다만티움", "다이아몬드", "오리하르콘"], "2": ["미스릴", "플래티넘", "흑요석"], "3": ["금", "은", "티타늄"], "4": ["철", "구리", "석탄"], "5": ["돌", "모래", "자갈"]}
-PICKAXE_MAX = {"나무": 200, "돌": 1000, "강철": 3000, "골드": 5000, "다이아": 7500, "아다만티움": 10000}
+# =========================
+# 💾 DB
+# =========================
+users = {}
+rooms = {}
 
-FULL_DECK = [
-    {'n': 'SP_10', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7Exp3mWoCRUfVj-ZE5CmN3IUjgtvGQAC2SYAAvCQ8VbM3lvO79VzBTsE'},
-    {'n': 'HT_10', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7E5p3mVSE9Y_S9vS6_WAAKGhAACOv_4VpJmKq_Wz_FTOzsE'},
-    {'n': 'DI_10', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7Elp3mWdvgYOMw9HgRc2Il7kbpGkGwACExsAAtRO8FahNaTDKDCFzTsE'},
-    {'n': 'CL_10', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7Ehp3mWd8ioZzOX1iY2u7FRMlZc4fAACMRsAAhGP8FbmO81P4gZ3DdSE'},
-    {'n': 'SP_J', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7GJp3mXczpHSUQABLPWVYJGRB79K7GUAAs4ZAAljo_BWHVM8Q7mxKjc7BA'},
-    {'n': 'HT_J', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7FBp3mVVZ_S9vS6_WAAKGhAACOv_4VpJmKq_Wz_FTOzsE'},
-    {'n': 'DI_J', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7F5p3mXP7eNL3nEmVkYmy9EnTxmKXAACPbSAAuAa8FauMWEkVitpddSE'},
-    {'n': 'CJ_J', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7F1p3mXOHKrfuHvAoDFBdNEGk1YfPgACbBsAAgiy-Fb54wO73qUBddSE'},
-    {'n': 'SP_Q', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7HJp3mX7k8OEWVS8Gjf4e99UVKKQMgACBRcAAr0P8Fa8o_9h2ERTKdSE'},
-    {'n': 'HT_Q', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7HFp3mX77o4V07GRhTZ7p3VjbvEFxgACmxkAAmFN8FYOgeAm8_YYfzsE'},
-    {'n': 'DI_Q', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7G5p3mX09qlW7oCyp-k3Z8KA1E0K3QACdxsAAtvN8FbMD0922U9hiDSE'},
-    {'n': 'CL_Q', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7G1p3mXzjWB4kHKsr0AfljIrFXEDHQA C9BoAAhcI-VaN6tW2wXj8yTsE'},
-    {'n': 'SP_K', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7Gpp3mXt8mcHJ_JyKQgTFnHAwdWtMwACCRoAAi-h-FazQTiuzxZmEzse'},
-    {'n': 'HT_K', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7Glp3mXsAAEdy6_qhm4sGBCZm1DLc38AAp8cAAJqqfhWcF0OQx5DFL87BA'},
-    {'n': 'DI_K', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7GZp3mXKuM-jJaBuOPhPFZSFMiHaSAACax8AAjMH8FYMbgTuO1crrjsE'},
-    {'n': 'CL_K', 's': 0, 'id': 'CAACAgUAAxkBAAEQ7GVp3mXje9-bjU0gVAXEVK_LZT_TMAACdxgAAgk48VaWvHPT0d5KfDsE'},
-    {'n': 'SP_A', 's': 1, 'id': 'CAACAgUAAxkBAAEQ7Fhp3mW8BGcPAUjH-Xu4bsjSDHIUSgACwh4AASAz8VYhnQL59WSxmzse'},
-    {'n': 'HT_A', 's': 1, 'id': 'CAACAgUAAxkBAAEQ7Fdp3mW7GOA0zTWFiMJqzdhQvuOzdgAC7RwAArhl8Faz3VKPQgKXMzse'},
-    {'n': 'DI_A', 's': 1, 'id': 'CAACAgUAAxkBAAEQ7FFp3mWXiDQVv4f7uMQbflbdJfLutgACzCAAAla48Vb9T8wXbzPPfjse'},
-    {'n': 'CL_A', 's': 1, 'id': 'CAACAgUAAxkBAAEQ7FBp3mWXjbV3Q5OEMdinCJfQltMsqQACHhsAAuaM8VYvC46og1B2ajse'},
-    {'n': 'HT_2', 's': 2, 'id': 'CAACAgUAAxkBAAEQ7App3mSRViSy9QABBrH7Hjrq5ouaZZ8AAtcaAALQMflWUcolg756dC47BA'},
-    {'n': 'SP_2', 's': 2, 'id': 'CAACAgUAAxkBAAEQ7Axp3mSaEUEgc5majSVq8OIh7ts2pwACQh4AAuxU8FYnql4-ZGGRJTsE'},
-    {'n': 'CL_2', 's': 2, 'id': 'CAACAgUAAxkBAAEQ7AZp3mR_TSeuCgnjXc4qbGPN_M1yVgACWx4AAubz8VbWRCfXXRC59jsE'},
-    {'n': 'DI_2', 's': 2, 'id': 'CAACAgUAAxkBAAEQ7Ahp3mSHxRGhAYCJQWfKunVrex9XKwACJx0AAhb5-VZ5zrTMtEsdvjsE'},
-    {'n': 'CL_3', 's': 3, 'id': 'CAACAgUAAxkBAAEQ7A5p3mSksYYgf8iEeXDDR8fq1KRP4QACaR8AAv5Y8VaTLVf2T489ZzsE'},
-    {'n': 'DI_3', 's': 3, 'id': 'CAACAgUAAxkBAAEQ7BBp3mSukxqN7O7HsmM4-5hD9GEPywACPB0AAjb28Fb2JkBj8-_NNjsE'},
-    {'n': 'HT_3', 's': 3, 'id': 'CAACAgUAAxkBAAEQ7BJp3mS1yaKFOG_5CrVrxEyyZV3wAACfhwAAsgs8VZuR148a475jsE'},
-    {'n': 'SP_3', 's': 3, 'id': 'CAACAgUAAxkBAAEQ7BRp3mS-_UwQIUAYhXc_AcvUY9rfvgACrxoAAuBR8VbK9G7nf3c54TsE'},
-    {'n': 'HT_4', 's': 4, 'id': 'CAACAgUAAxkBAAEQ7Bpp3mTSM0lu28ee05WEDvA60gj02QACcB4AAmM48VYrEVYD2RMdTzsE'},
-    {'n': 'SP_4', 's': 4, 'id': 'CAACAgUAAxkBAAEQ7Bxp3mTXgly2BFytQ15h9ry_MruqwwACjxwAAsth8FZ1KAQ0WpYDlzsE'},
-    {'n': 'CL_4', 's': 4, 'id': 'CAACAgUAAxkBAAEQ7BZp3mTEreDBUC8SDd6zMknOuslsJQAC-x0AAk898VallRAp2VysPDsE'},
-    {'n': 'DI_4', 's': 4, 'id': 'CAACAgUAAxkBAAEQ7Bhp3mTLrFneb4g5FGcLDQqiiXfhKwACYx0AAhbh8VaJgN_C89Ws4jsE'},
-    {'n': 'CL_5', 's': 5, 'id': 'CAACAgUAAxkBAAEQ7B5p3mTciJpNbwOUcDGtJanwooEMAACHyEAAofK8FbQIR7YFejOuDsE'},
-    {'n': 'DI_5', 's': 5, 'id': 'CAACAgUAAxkBAAEQ7CBp3mTk31W6hLC6UcCAv373S4akGwACVxwAAidE-FYFTRXzoYHR0jsE'},
-    {'n': 'HT_5', 's': 5, 'id': 'CAACAgUAAxkBAAEQ7CJp3mTrBoeYaj9SfvexBKZAVbkZMgACNBkAAiXt8FY'},
-    {'n': 'SP_5', 's': 5, 'id': 'CAACAgUAAxkBAAEQ7CRp3mT632ulFb6I-YFRwOxC5biGdgACEh4AAvYr8Vb0JSaolbjdrTsE'},
-    {'n': 'CL_6', 's': 6, 'id': 'CAACAgUAAxkBAAEQ7CZp3mUCEmoK8EuD6D544yHOaLu3-wAC9hgAAq89-FaiUQuOgwiwzsE'},
-    {'n': 'DI_6', 's': 6, 'id': 'CAACAgUAAxkBAAEQ7Chp3mUNHWqdz7d6zLs1dzO5IJYy3QACfxwAAou88FYld8a9twT_YzsE'},
-    {'n': 'HT_6', 's': 6, 'id': 'CAACAgUAAxkBAAEQ7Clp3mUOKoepG6cx3X8DQVIG9V2sLAAC5BsAAg768FbNdm1szl6UUTsE'},
-    {'n': 'SP_6', 's': 6, 'id': 'CAACAgUAAxkBAAEQ7Chp3mUOCoepG6cx3X8DQVIG9V2sLAAC5BsAAg768FbNdm1szl6UUTsE'},
-    {'n': 'SP_7', 's': 7, 'id': 'CAACAgUAAxkBAAEQ7DFp3mUpnCA-GEJ8oaLYcdSneGJu3QACuhoAAjFN8FbTzoXAcmpBCTsE'},
-    {'n': 'HT_7', 's': 7, 'id': 'CAACAgUAAxkBAAEQ7DBp3mUpBnm0QPY0a2CaDUGGzfqmqwACiBsAAtB0-Fb1BMJRuaIUJDSE'},
-    {'n': 'CL_7', 's': 7, 'id': 'CAACAgUAAxkBAAEQ7C1p3mUaD__E8YaJEA2puTxbnjHnyQACth0AAjMq8Val7P12Gpjr2DsE'},
-    {'n': 'DI_7', 's': 7, 'id': 'CAACAgUAAxkBAAEQ7Hdp3mYSx96E3k_hPNMS_FOdDQAB0b4AAk0dAAITVfFW4T3rXlj6AAFWOWqQ'},
-    {'n': 'SP_8', 's': 8, 'id': 'CAACAgUAAxkBAAEQ7Dlp3mVKb8CjYmV0DNZCrujiZx5S5wACqScAAnS48FYYwX-ZCyh0iDsE'},
-    {'n': 'HT_8', 's': 8, 'id': 'CAACAgUAAxkBAAEQ7Dhp3mVJ5yNHLy28B9BHT2qfgsv2rQACdB4AAnMM8VZTMSvcZqfutzsE'},
-    {'n': 'DI_8', 's': 8, 'id': 'CAACAgUAAxkBAAEQ7DVp3mU13uK_NKkAAUefJseY-eW03RAAAi0bAAKhoPFWLno-ReRJ4H47BA'},
-    {'n': 'CL_8', 's': 8, 'id': 'CAACAgUAAxkBAAEQ7DRp3mU1sNsf-ebu7c80oVqgji32mgACpR8AAuNO8VaW49WvovXUZzsE'},
-    {'n': 'SP_9', 's': 9, 'id': 'CAACAgUAAxkBAAEQ7EVp3mWUy1KHmKxHMBmbmo738zl1GQACyhkAAmI9-FY-6RY8e3-UETsE'},
-    {'n': 'HT_9', 's': 9, 'id': 'CAACAgUAAxkBAAEQ7ERp3mWT3RbXuluWyAVqNgpJ4KSunwACERoAAnvy-VaomxXwVnT5RDsE'},
-    {'n': 'D9_9', 's': 9, 'id': 'CAACAgUAAxkBAAEQ7EFp3mWGN5nL3ma1jSENoY1PYOLCgwACVx4AAjW7-Fa30fLUp ygsgzsE'},
-    {'n': 'CL_9', 's': 9, 'id': 'CAACAgUAAxkBAAEQ7EBp3mWGYNOoFfvUelUEqB__xWN40wACQxwAAqMu8FZUMsBrOgtazjsE'}
-]
+def save():
+    with open("db.json","w",encoding="utf-8") as f:
+        json.dump(users,f,ensure_ascii=False)
 
-game_state = {"is_betting": False, "round": 23, "current_bets": [], "history": []}
-game_lock = asyncio.Lock()
+def load():
+    global users
+    try:
+        with open("db.json","r",encoding="utf-8") as f:
+            users=json.load(f)
+    except:
+        users={}
 
-if os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        db = json.load(f)
-        users = {int(k): v for k, v in db.get("users", {}).items()}
-        game_state["round"] = db.get("round", 23)
-        game_state["history"] = db.get("history", [])
-else: users = {}
+# =========================
+# 👤 USER INIT
+# =========================
+def init(uid,name):
+    uid=str(uid)
+    if uid not in users:
+        users[uid]={
+            "name":name,
+            "money":100000,
+            "inv":{},
+            "pickaxe":{"name":"우드","dur":100},
+            "bets":{}
+        }
 
-def save_db():
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump({"users": {str(k): v for k, v in users.items()}, "round": game_state["round"], "history": game_state["history"]}, f, ensure_ascii=False, indent=4)
+# =========================
+# 🎰 ROOM
+# =========================
+def get_room(cid):
+    cid=str(cid)
+    if cid not in rooms:
+        rooms[cid]={
+            "bets":{},
+            "timer":False,
+            "lock":False
+        }
+    return rooms[cid]
 
-def get_road_map():
-    display = game_state["history"][-50:]
-    grid = [["⚪" for _ in range(10)] for _ in range(5)]
-    for idx, res in enumerate(display):
-        r, c = idx % 5, idx // 5
-        if c < 10: grid[r][c] = "🔵" if res == "P" else "🔴" if res == "B" else "🟢"
-    return "<b>📊 바카라 그림장 (최근 50회)</b>\n" + "\n".join("".join(row) for row in grid)
+# =========================
+# ⛏ MINING SYSTEM
+# =========================
+MINERALS={
+"1티어":{"아다만티움":5000000,"오리하르콘":3000000,"다이아몬드":2000000},
+"2티어":{"미스릴":1000000,"흑요석":700000},
+"3티어":{"백금":400000,"금":250000,"티타늄":180000},
+"4티어":{"은":100000,"비취":50000,"황동":30000},
+"5티어":{"철":25000,"구리":15000,"석탄":10000}
+}
 
-# ==========================================
-# 2. 메인 핸들러
-# ==========================================
-async def handle_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text: return
-    text, uid = update.message.text.strip(), update.effective_user.id
-    name = update.effective_user.first_name
-    uname = update.effective_user.username or "익명"
+PICKAXE={
+"우드":(1000000,100),
+"스톤":(5000000,300),
+"아이언":(15000000,500),
+"골드":(50000000,1000),
+"다이아":(250000000,5000),
+"아다만티움":(1000000000,10000)
+}
 
-    if text == ".가입":
-        if uid in users: return await update.message.reply_text("❌ 이미 가입됨")
-        users[uid] = {"name": name, "username": uname, "money": 100000, "pickaxe": "나무", "durability": 200, "inventory": {m: 0 for m in minerals_config}, "last_mine": 0, "last_check": ""}
-        save_db()
-        kb = [[InlineKeyboardButton("📢 공지채널", url=COIN_CHANNEL)]]
-        return await update.message.reply_html(f"<b>✅ 가입 완료!</b>\n100,000 G 지급됨.", reply_markup=InlineKeyboardMarkup(kb))
+def mine():
+    t=random.choice(list(MINERALS.keys()))
+    i=random.choice(list(MINERALS[t].keys()))
+    return t,i,MINERALS[t][i]
 
-    if uid not in users and text.startswith("."): return await update.message.reply_text("❌ 가입 먼저")
-    user = users.get(uid)
-    admin = users.get(ADMIN_ID) or users.setdefault(ADMIN_ID, {"name":"ADMIN", "money":0, "inventory":{}, "pickaxe":"나무", "durability":200})
+# =========================
+# ⛏ 채광
+# =========================
+async def 채광(update, context):
+    uid=str(update.effective_user.id)
+    init(uid,update.effective_user.first_name)
 
-    if text == ".명령어":
-        help_msg = "<b>📜 명령어 안내</b>\n\n.내정보, .채광, .수리, .판매, .송금 [ID] [금액]\n바카라: .플, .뱅, .타이 [금액]"
-        kb = [[InlineKeyboardButton("📢 공지채널", url=COIN_CHANNEL), InlineKeyboardButton("🎧 상담원", url=SUPPORT_LINK)]]
-        return await update.message.reply_html(help_msg, reply_markup=InlineKeyboardMarkup(kb))
+    u=users[uid]
+    pick=u["pickaxe"]
 
-    elif text == ".내정보":
-        inv = ", ".join([f"{m}:{c}" for m, c in user["inventory"].items() if c > 0])
-        await update.message.reply_html(f"<b>👤 {user['name']}</b>\n💰 코인: {user['money']:,} G\n⛏ 곡괭이: {user['pickaxe']} ({user['durability']})\n📦: {inv or '없음'}")
+    if pick["dur"]<=0:
+        await update.message.reply_text("❌ 곡괭이 내구도 부족")
+        return
 
-    elif text == ".채광":
-        now = time.time()
-        if now - user.get("last_mine",0) < 40: return await update.message.reply_text(f"⏳ {int(40-(now-user['last_mine']))}초 대기")
-        if user["durability"] <= 0: return await update.message.reply_text("⛏ 파손됨")
-        tier = random.choices(["5","4","3","2","1"], weights=[50, 30, 15, 4, 1])[0]
-        item = random.choice(TIERS[tier])
-        user["inventory"][item] += 1; user["durability"] -= 1; user["last_mine"] = now; save_db()
-        await update.message.reply_html(f"⛏ <b>{item}</b> 획득!")
+    pick["dur"]-=1
 
-    elif text == ".수리":
-        prices = {"나무": 100000, "돌": 500000, "강철": 1500000, "골드": 3000000, "다이아": 7000000, "아다만티움": 15000000}
-        cost = prices.get(user["pickaxe"], 100000)
-        if user["money"] < cost: return await update.message.reply_text(f"❌ {cost:,}G 부족")
-        user["money"] -= cost; user["durability"] = PICKAXE_MAX[user["pickaxe"]]; save_db()
-        await update.message.reply_text("🔧 수리 완료!")
+    t,i,p=mine()
+    u["inv"][i]=u["inv"].get(i,0)+1
 
-    elif text == ".판매":
-        kb = [[InlineKeyboardButton(f"{i}티어 판매", callback_data=f"sell_{i}") for i in ["1","2"]], [InlineKeyboardButton(f"{i}티어 판매", callback_data=f"sell_{i}") for i in ["3","4"]], [InlineKeyboardButton("💰 전체 판매", callback_data="sell_all")]]
-        await update.message.reply_html("<b>판매할 티어를 선택하세요.</b>", reply_markup=InlineKeyboardMarkup(kb))
+    save()
+    await update.message.reply_text(f"⛏ {t}-{i} ({p})\n내구도:{pick['dur']}")
 
-    elif text.startswith((".플 ", ".뱅 ", ".타이 ")):
-        try:
-            cmd, bet = text.split()[0], int(text.split()[1])
-            if user["money"] < bet: return await update.message.reply_text("❌ 잔액 부족")
-            user["money"] -= bet; admin["money"] += bet; save_db()
-            game_state["current_bets"].append({"uid": uid, "cmd": cmd, "bet": bet, "user": user})
-            await update.message.reply_html(f"<b>✅ {game_state['round']}회차 {cmd[1:]} {bet:,}G 베팅!</b>")
-            if not game_state["is_betting"]:
-                async with game_lock:
-                    game_state["is_betting"] = True; await asyncio.sleep(25)
-                    cid = update.effective_chat.id
-                    await context.bot.send_message(cid, "<b>⚠️ 5초 전 마감!</b>", parse_mode="HTML"); await asyncio.sleep(5)
-                    deck = FULL_DECK.copy(); random.shuffle(deck)
-                    p, b = [deck.pop(), deck.pop()], [deck.pop(), deck.pop()]
-                    ps, bs = sum(c['s'] for c in p)%10, sum(c['s'] for c in b)%10
-                    if ps <= 5: p.append(deck.pop()); ps = sum(c['s'] for c in p)%10
-                    if bs <= 5: b.append(deck.pop()); bs = sum(c['s'] for c in b)%10
-                    win = "P" if ps > bs else "B" if bs > ps else "T"
-                    game_state["history"].append(win)
-                    report = f"<b>🏆 {game_state['round']}회차: {win} ({ps}:{bs})</b>\n"
-                    for bt in game_state["current_bets"]:
-                        if (bt["cmd"]==".플" and win=="P") or (bt["cmd"]==".뱅" and win=="B") or (bt["cmd"]==".타이" and win=="T"):
-                            rate = 8 if win=="T" else (1.95 if win=="B" else 2)
-                            w_amt = int(bt["bet"] * rate); bt["user"]["money"] += w_amt; admin["money"] -= w_amt
-                            report += f"✅ {bt['user']['name']}: +{w_amt:,} G\n"
-                        else: report += f"❌ {bt['user']['name']}: 낙첨\n"
-                    await context.bot.send_message(cid, f"{report}\n{get_road_map()}", parse_mode="HTML")
-                    game_state["round"] += 1; game_state["current_bets"].clear(); game_state["is_betting"] = False; save_db()
-        except: pass
+# =========================
+# 📦 INVENTORY
+# =========================
+async def 인벤(update, context):
+    uid=str(update.effective_user.id)
+    init(uid,update.effective_user.first_name)
 
-async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query; user = users.get(q.from_user.id)
-    if not user: return
-    data, sold = q.data, 0
-    if data == "sell_all":
-        for m, c in user["inventory"].items(): sold += c * minerals_config[m]; user["inventory"][m] = 0
-    elif data.startswith("sell_"):
-        t = data.split("_")[1]
-        for m in TIERS[t]: sold += user["inventory"][m] * minerals_config[m]; user["inventory"][m] = 0
-    if sold > 0: user["money"] += sold; save_db(); await q.answer(f"+{sold:,}G!"); await q.edit_message_text(f"✅ 판매완료! +{sold:,}G")
-    else: await q.answer("판매할 것이 없음", show_alert=True)
+    inv=users[uid]["inv"]
 
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
+    msg="📦 인벤\n"
+    for k,v in inv.items():
+        msg+=f"{k} x{v}\n"
 
-async def main():
-    port = int(os.environ.get("PORT", 8080))
-    threading.Thread(target=lambda: HTTPServer(('0.0.0.0', port), HealthHandler).serve_forever(), daemon=True).start()
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_commands))
-    app.add_handler(CallbackQueryHandler(on_callback))
-    await app.run_polling(drop_pending_updates=True)
+    await update.message.reply_text(msg)
 
-if __name__ == '__main__': asyncio.run(main())
+# =========================
+# 💰 SELL
+# =========================
+async def 판매(update, context):
+    uid=str(update.effective_user.id)
+    init(uid,update.effective_user.first_name)
+
+    total=0
+
+    for item,qty in users[uid]["inv"].items():
+        for t in MINERALS:
+            if item in MINERALS[t]:
+                total+=MINERALS[t][item]*qty
+
+    users[uid]["inv"]={}
+    users[uid]["money"]+=total
+
+    save()
+    await update.message.reply_text(f"💰 +{total}")
+
+# =========================
+# 🎰 BACCARAT CORE
+# =========================
+def get_deck():
+    cards=[1,2,3,4,5,6,7,8,9,0]*4
+    random.shuffle(cards)
+    return cards
+
+def score(cards):
+    return sum(cards)%10
+
+async def bet(update, context, side):
+
+    cid=update.effective_chat.id
+    room=get_room(cid)
+
+    uid=str(update.effective_user.id)
+    init(uid,update.effective_user.first_name)
+
+    if room["lock"]:
+        await update.message.reply_text("⛔ 베팅 종료")
+        return
+
+    if not context.args:
+        return
+
+    amount=int(context.args[0])
+
+    if users[uid]["money"]<amount:
+        await update.message.reply_text("💸 돈 부족")
+        return
+
+    users[uid]["money"]-=amount
+
+    room["bets"].setdefault(uid,{"PLAYER":0,"BANKER":0,"TIE":0})
+    room["bets"][uid][side]+=amount
+
+    if not room["timer"]:
+        room["timer"]=True
+        context.application.create_task(start_round(cid,context))
+
+    await update.message.reply_text(f"🎰 {side} {amount}")
+
+async def 플(u,c): await bet(u,c,"PLAYER")
+async def 뱅(u,c): await bet(u,c,"BANKER")
+async def 타이(u,c): await bet(u,c,"TIE")
+
+async def start_round(cid,context):
+    room=get_room(cid)
+
+    await asyncio.sleep(25)
+
+    room["lock"]=True
+    await context.bot.send_message(cid,"🔒 베팅 마감")
+
+    await asyncio.sleep(2)
+    await run_game(cid,context)
+
+async def run_game(cid,context):
+
+    room=get_room(cid)
+    deck=get_deck()
+
+    p=[deck.pop(),deck.pop()]
+    b=[deck.pop(),deck.pop()]
+
+    if score(p)>5: p.append(deck.pop())
+    if score(b)>5: b.append(deck.pop())
+
+    ps=score(p)
+    bs=score(b)
+
+    if ps>bs: result="PLAYER"
+    elif ps<bs: result="BANKER"
+    else: result="TIE"
+
+    msg="\n📊 정산\n"
+
+    for uid,b in room["bets"].items():
+
+        win=0
+
+        if result=="PLAYER" and b["PLAYER"]:
+            win=int(b["PLAYER"]*2)
+        elif result=="BANKER" and b["BANKER"]:
+            win=int(b["BANKER"]*1.95)
+        elif result=="TIE" and b["TIE"]:
+            win=int(b["TIE"]*8)
+
+        users[uid]["money"]+=win
+        msg+=f"{users[uid]['name']} +{win}\n"
+
+    room["bets"]={}
+    room["timer"]=False
+    room["lock"]=False
+
+    await context.bot.send_message(cid,f"🏆 {result}\n{msg}")
+
+# =========================
+# 🏪 SHOP
+# =========================
+async def 상점(update, context):
+
+    kb=[]
+    for k,(p,d) in PICKAXE.items():
+        kb.append([InlineKeyboardButton(f"{k} {p}",callback_data=f"pick_{k}")])
+
+    await update.message.reply_text("⛏ 상점",reply_markup=InlineKeyboardMarkup(kb))
+
+async def button(update, context):
+
+    q=update.callback_query
+    await q.answer()
+
+    uid=str(q.from_user.id)
+    init(uid,q.from_user.first_name)
+
+    if q.data.startswith("pick_"):
+        name=q.data.split("_")[1]
+        price,dur=PICKAXE[name]
+
+        if users[uid]["money"]<price:
+            await q.edit_message_text("돈 부족")
+            return
+
+        users[uid]["money"]-=price
+        users[uid]["pickaxe"]={"name":name,"dur":dur}
+
+        save()
+        await q.edit_message_text("⛏ 장착 완료")
+
+# =========================
+# 🏆 RANK
+# =========================
+async def 랭킹(update, context):
+
+    top=sorted(users.items(),key=lambda x:x[1]["money"],reverse=True)
+
+    msg="🏆 랭킹\n\n"
+    i=1
+
+    for uid,u in top:
+        msg+=f"{i}. {u['name']} {u['money']}\n"
+        i+=1
+        if i>10:break
+
+    await update.message.reply_text(msg)
+
+# =========================
+# 🧠 ROUTER (.명령어 시스템)
+# =========================
+async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    text=update.message.text
+
+    if not text.startswith("."):
+        return
+
+    cmd=text.split()[0][1:]
+    args=text.split()[1:]
+    context.args=args
+
+    if cmd=="채광":
+        await 채광(update,context)
+
+    elif cmd=="인벤":
+        await 인벤(update,context)
+
+    elif cmd=="판매":
+        await 판매(update,context)
+
+    elif cmd=="플":
+        await 플(update,context)
+
+    elif cmd=="뱅":
+        await 뱅(update,context)
+
+    elif cmd=="타이":
+        await 타이(update,context)
+
+    elif cmd=="상점":
+        await 상점(update,context)
+
+    elif cmd=="랭킹":
+        await 랭킹(update,context)
+
+    else:
+        await update.message.reply_text("❌ 없는 명령어")
+
+# =========================
+# 🚀 START
+# =========================
+load()
+
+app=ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, router))
+app.add_handler(CallbackQueryHandler(button))
+
+print("BOT STARTED")
+app.run_polling()
