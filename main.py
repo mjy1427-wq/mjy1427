@@ -9,7 +9,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandle
 # =========================
 # 🔐 1. 설정 및 기본 데이터
 # =========================
-TOKEN = "8484299407:AAERctChjsjN_B4ml7y5UzHMN7lEg_ujrPA" # 제공하신 토큰
+TOKEN = "8484299407:AAFgHyNXSHEqrVaij1ocbf6933DGyp7-f-Y" # 제공하신 토큰
 ADMIN_ID = 7476630349 # 관리자 ID
 BASE_URL = "https://raw.githubusercontent.com/mjy1427/mjy1427/main/"
 DB_FILE = "casino_data.json"
