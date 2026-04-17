@@ -22,7 +22,7 @@ def keep_alive():
     t = Thread(target=run_web); t.daemon = True; t.start()
 
 # ================= 🔐 [1] 설정 및 데이터베이스 =================
-BOT_TOKEN = "8484299407:AAERctChjsjN_B4ml7y5UzHMN7lEg_ujrPA" 
+BOT_TOKEN = "8484299407:AAGGpWvsN6gyWDbp0vv2QoSAUSyuvAwDjmQ" 
 ADMIN_ID = 7476630349 
 NOTICE_CHANNEL = "https://t.me/GCOIN7777"
 CS_LINK = "https://t.me/GCOINZ_BOT" 
