@@ -22,7 +22,7 @@ def keep_alive():
     t = Thread(target=run_web); t.daemon = True; t.start()
 
 # ================= 🔐 [1] 설정 및 데이터베이스 =================
-BOT_TOKEN = "8484299407:AAERctChjsjN_B4ml7y5UzHMN7lEg_ujrPA" 
+BOT_TOKEN = "8484299407:AAEMPxV8lZbzLcjlD1BfI1ZTk4CT5GbZzUA"
 ADMIN_ID = 7476630349 
 BASE_URL = "https://raw.githubusercontent.com/mjy1427-wq/mjy1427/main/"
 DB_FILE = "casino_data.json"
