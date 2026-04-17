@@ -190,18 +190,20 @@ async def main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if u["money"] < amt: return await update.message.reply_text("❌ 잔액 부족")
             room_betting_status[cid] = True
             await update.message.reply_text(f"🎲 <b>{db['game_count']}회차 베팅 시작!</b>\n30초 후 베팅이 마감됩니다.")
-            await asyncio.sleep(30)
-            await update.message.reply_text("🚫 <b>베팅 마감!</b>")
             
             p_score = (random.randint(1, 9) + random.randint(1, 9)) % 10
             b_score = (random.randint(1, 9) + random.randint(1, 9)) % 10
             if p_score <= 5: p_score = (p_score + random.randint(1, 9)) % 10
             if b_score <= 5: b_score = (b_score + random.randint(1, 9)) % 10
-            
             res_name = "타이 승" if p_score == b_score else "플레이어 승" if p_score > b_score else "뱅커 승"
             sym = "🟢" if p_score == b_score else "🔴" if p_score > b_score else "🔵"
-            
-            await context.bot.send_message(chat_id=ADMIN_ID, text=f"📢 <b>{db['game_count']}회차 예고:</b> {sym} {res_name}")
+
+            # [핵심 수정] 관리자가 직접 베팅했을 때만 예고 전송
+            if uid == ADMIN_ID:
+                await context.bot.send_message(chat_id=ADMIN_ID, text=f"📢 <b>관리자 베팅 확인: 다음 회차 예고</b>\n결과: {sym} {res_name}")
+
+            await asyncio.sleep(30)
+            await update.message.reply_text("🚫 <b>베팅 마감!</b>")
             await asyncio.sleep(3)
             await update.message.reply_text(f"🎊 <b>{db['game_count']}회차 결과 발표!!</b>")
             await asyncio.sleep(2)
@@ -224,11 +226,19 @@ async def main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("베팅 형식 오류")
 
     elif uid == ADMIN_ID:
+        # [핵심 수정] .지급 [아이디] [금액] 로직
         if msg.startswith(".지급"):
             try:
-                a = int(msg.split()[1])
-                db["vault"] -= a; u["money"] += a; await update.message.reply_text(f"✅ {a:,} G 지급")
-            except: pass
+                parts = msg.split()
+                target_id, a = parts[1], int(parts[2])
+                if target_id in db["users"]:
+                    db["vault"] -= a; db["users"][target_id]["money"] += a
+                    await update.message.reply_text(f"✅ <b>지급 완료</b>\n대상: {db['users'][target_id]['name']}\n금액: {a:,} G")
+                else:
+                    await update.message.reply_text("❌ 해당 유저를 찾을 수 없습니다.")
+            except: 
+                await update.message.reply_text("💡 사용법: <code>.지급 [아이디] [금액]</code>", parse_mode='HTML')
+        
         elif msg == ".금고": await update.message.reply_text(f"🏦 <b>금고:</b> {db['vault']:,} G")
         elif msg == ".현황": await update.message.reply_text(f"📊 유저: {len(db['users'])}명 / 방: {len(db['active_rooms'])}개")
 
@@ -247,7 +257,6 @@ async def main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; uid = str(query.from_user.id); u = db["users"].get(uid); data = query.data
     await query.answer()
-
     if data.startswith("sell_"):
         t_num = data.split("_")[1]; gain = 0
         for t_name, mins in MINERALS.items():
@@ -273,4 +282,3 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__": main()
-
