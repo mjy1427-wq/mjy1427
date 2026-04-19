@@ -24,7 +24,7 @@ def keep_alive():
 
 # --- [2. 게임 설정 및 고정 데이터] ---
 ADMIN_HANDLE = "EJ1427"
-TOKEN = "8484299407:AAHOQwaK9SbhcqnmqO6SOMaxbSoAiMTNNs0"
+TOKEN = "8484299407:AAEFUmF3brlAfWMN3Cn1NFT1oTjB3EByIzw"
 OFFICIAL_CHANNEL_URL = "https://t.me/your_channel" # 관리자 채널 주소
 
 DATA_FILE = "user_data.json"
