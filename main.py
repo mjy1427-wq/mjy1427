@@ -26,8 +26,8 @@ def keep_alive():
 
 # --- [2. 설정] ---
 ADMIN_HANDLE = "EJ1427"
-TOKEN = "여기에_너_새토큰_넣어라"  # ⚠️ 절대 깃허브에 그대로 올리지 마
-OFFICIAL_CHANNEL_URL = "https://t.me/your_channel"
+TOKEN = "8484299407:AAEFUmF3brlAfWMN3Cn1NFT1oTjB3EByIzw"  # ⚠️ 절대 깃허브에 그대로 올리지 마
+OFFICIAL_CHANNEL_URL = "https://t.me/GCOIN7777"
 
 DATA_FILE = "user_data.json"
 ROOMS_FILE = "active_rooms.json"
