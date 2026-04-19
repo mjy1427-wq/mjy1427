@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 
 # --- [설정 및 데이터 관리] ---
 ADMIN_HANDLE = "EJ1427" 
-TOKEN = "8484299407:AAHgLqmlVS2cMG5_zYUJSTNjbb7KJBxGLks" 
+TOKEN = "8484299407:AAErfAV0Vl6bxWGN6fKtbmCW5qz-3IALeAU" 
 OFFICIAL_CHANNEL_URL = "https://t.me/GCOIN7777"
 
 DATA_FILE = "user_data.json"
