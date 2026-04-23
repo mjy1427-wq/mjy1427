@@ -17,7 +17,7 @@ def home():
 def run_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
-TOKEN = os.environ.get("8484299407:AAERBt8Wnb5eFRmjFZ0E4ms1lL4IQK5Q2k8")
+TOKEN = os.environ.get("8484299407:AAGwhuy8Y39PSX8D6lznxp3Gd10e8rG07Hw")
 ADMIN_ID = 7476630349
 GOLD_EVENT = False
 
