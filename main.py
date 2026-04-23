@@ -1,276 +1,289 @@
-import os
 import random
 import sqlite3
+import os
 import threading
-
 from flask import Flask
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# ------------------ 설정 ------------------
-TOKEN = "8484299407:AAERBt8Wnb5eFRmjFZ0E4ms1lL4IQK5Q2k8"
-NOTICE_URL = "https://t.me/GCOIN7777"
-ADMIN_ID = 7476630349
-MAX_LEVEL = 999
-
-# ------------------ Flask ------------------
-app_flask = Flask(__name__)
-@app_flask.route('/')
+# =========================
+# SERVER
+# =========================
+app = Flask(__name__)
+@app.route("/")
 def home():
-    return "RUNNING"
+    return "BONGSIN MMO ENGINE RUNNING"
 
 def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app_flask.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
-# ------------------ DB ------------------
+TOKEN = os.environ.get("8484299407:AAERBt8Wnb5eFRmjFZ0E4ms1lL4IQK5Q2k8")
+ADMIN_ID = 7476630349
+GOLD_EVENT = False
+
+# =========================
+# DB
+# =========================
 conn = sqlite3.connect("game.db", check_same_thread=False)
 db = conn.cursor()
+lock = threading.Lock()
 
-db.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, coin INTEGER)")
-db.execute("""
-CREATE TABLE IF NOT EXISTS pets (
+def q(sql, args=(), fetch=False):
+    with lock:
+        db.execute(sql, args)
+        conn.commit()
+        return db.fetchall() if fetch else None
+
+# =========================
+# TABLES
+# =========================
+q("""CREATE TABLE IF NOT EXISTS users(
+id INTEGER PRIMARY KEY,
+name TEXT,
+coin INTEGER DEFAULT 0
+)""")
+
+q("""CREATE TABLE IF NOT EXISTS pets(
 id INTEGER PRIMARY KEY AUTOINCREMENT,
 user_id INTEGER,
 name TEXT,
-level INTEGER,
-exp INTEGER,
 rarity TEXT,
-is_equipped INTEGER DEFAULT 0
-)
-""")
-db.execute("""
-CREATE TABLE IF NOT EXISTS market (
+level INTEGER DEFAULT 1,
+exp INTEGER DEFAULT 0,
+atk INTEGER,
+crit REAL,
+bonus REAL,
+equipped INTEGER DEFAULT 0
+)""")
+
+q("""CREATE TABLE IF NOT EXISTS market(
 id INTEGER PRIMARY KEY AUTOINCREMENT,
-seller_id INTEGER,
 pet_id INTEGER,
-price INTEGER
-)
-""")
-conn.commit()
+seller_id INTEGER,
+price INTEGER,
+status TEXT DEFAULT 'ON'
+)""")
 
-# ------------------ 유틸 ------------------
-def get_user(uid):
-    db.execute("SELECT * FROM users WHERE id=?", (uid,))
-    u = db.fetchone()
-    if not u:
-        db.execute("INSERT INTO users VALUES (?,?)",(uid,100000))
-        conn.commit()
-        return (uid,100000)
-    return u
+# =========================
+# FULL PET DATA (NO REDUCTION)
+# =========================
+PET = {
+"C": ["잡귀","음령","흑혼","허무령","잔영귀","부유령","그림자귀","음산혼","낙혼귀","기척령","허상귀","미약혼","잔재령","소멸귀","흑안체","야광잔혼","검은파편","혼백조각","흐릿한령","망령기운"],
+"B": ["산귀","야수령","흑풍수","독안귀","혼탁령","혈야귀","광기수","암야령","흑혼수","야림귀","혼령수","적야귀","음풍령","흑수장","사령귀","야혼수","흑야령","폭풍혼","독기령","암흑수"],
+"A": ["천령수","백호수","혼원수","영겁수","청령수","흑야수라","천강령","광야수","화산령","뇌풍수","수호령","철갑수","빙혼수","암령수","황혼수","천룡수","성광령","신수령","백야수","혼천수"],
+"S": ["용신","흑룡령","천마귀","태양수","빙천수","적염주작","현무강림","백월호왕","폭풍신령","뇌전귀"],
+"SS": ["천마귀왕","혼돈제령","신멸수","영겁파수","흑천신","태초수호","파멸신령","지옥수","천상파괴수","무극령"],
+"SSS": ["혼돈마신","천멸흑룡","태초귀황","무극신","창세귀황","영겁파괴룡","차원붕괴자","신계종결자"]
+}
 
-def update_coin(uid, amount):
-    db.execute("UPDATE users SET coin = coin + ? WHERE id=?", (amount, uid))
-    conn.commit()
+UR = {
+"name":"종말의 용 아포피스",
+"rarity":"UR",
+"level":999,
+"atk":999999,
+"crit":999999,
+"bonus":999999
+}
 
-# ------------------ 영수 ------------------
-RARITIES = ["C","B","A","S","SS","SSS"]
+# =========================
+# EXP SYSTEM (후반 폭증)
+# =========================
+def need_exp(lv):
+    return int(100 * (lv ** 2.2))
 
-def give_pet(uid):
-    rarity = random.choice(RARITIES)
-    name = f"{rarity}영수{random.randint(1,999)}"
-    db.execute("INSERT INTO pets (user_id,name,level,exp,rarity) VALUES (?,?,?,?,?)",
-               (uid,name,1,0,rarity))
-    conn.commit()
+def add_exp(pid, exp):
+    pet = q("SELECT level,exp FROM pets WHERE id=?", (pid,), True)[0]
+    lv, ex = pet
+    ex += exp
 
-def equip_pet(uid, pid):
-    db.execute("UPDATE pets SET is_equipped=0 WHERE user_id=?", (uid,))
-    db.execute("UPDATE pets SET is_equipped=1 WHERE id=?", (pid,))
-    conn.commit()
+    while ex >= need_exp(lv) and lv < 999:
+        ex -= need_exp(lv)
+        lv += 1
 
-# ------------------ 상태 ------------------
-sell_state = {}
+    q("UPDATE pets SET level=?, exp=? WHERE id=?", (lv, ex, pid))
 
-# ------------------ 명령 ------------------
-async def register(update:Update,context):
-    get_user(update.effective_user.id)
-    await update.message.reply_text("가입 완료 +100000코인")
+# =========================
+# MENU
+# =========================
+def menu():
+    return ReplyKeyboardMarkup([
+        ['⚔️ 사냥터','🎒 인벤토리'],
+        ['🐾 영수목록','👤 내정보'],
+        ['🏛️ 거래소','📖 봉신도감'],
+        ['📅 출석','🏆 랭킹']
+    ], resize_keyboard=True)
 
-async def menu(update:Update,context):
-    kb=[
-        ['⚔️ 사냥','🎒 가방'],
-        ['🐾 영수목록','🏪 상점'],
-        ['🏛️ 거래소','📖 도감'],
-        ['🏆 랭킹','📢 공지']
-    ]
-    await update.message.reply_text("🏮 메뉴",reply_markup=ReplyKeyboardMarkup(kb,resize_keyboard=True))
+def admin_menu():
+    return ReplyKeyboardMarkup([
+        ['👑 UR지급','🎁 영수지급'],
+        ['💰 코인지급','📊 이벤트'],
+        ['🧹 회수','📢 공지']
+    ], resize_keyboard=True)
 
-# ------------------ 관리자 ------------------
-async def admin(update:Update,context):
-    if update.effective_user.id != ADMIN_ID:
+# =========================
+# USER INIT
+# =========================
+def user(uid,name):
+    q("INSERT OR IGNORE INTO users(id,name,coin) VALUES(?,?,0)", (uid,name))
+
+# =========================
+# EQUIP
+# =========================
+def equip(uid):
+    r = q("SELECT id,name,rarity,level,atk,crit,bonus FROM pets WHERE user_id=? AND equipped=1", (uid,), True)
+    return r[0] if r else None
+
+# =========================
+# DROP
+# =========================
+def drop(uid):
+    r = random.choices(["C","B","A","S","SS","SSS"], weights=[60,25,10,4,1,0.2])[0]
+    name = random.choice(PET[r])
+
+    q("""INSERT INTO pets(user_id,name,rarity,level,atk,crit,bonus)
+         VALUES(?,?,?,?,?,?,?)""",
+      (uid,name,r,1,
+       random.randint(20,120),
+       random.uniform(0.01,0.2),
+       random.uniform(0,0.5)))
+
+# =========================
+# HUNT
+# =========================
+async def hunt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    user(uid, update.effective_user.first_name)
+
+    coin = random.randint(5000,12000)
+    pet = equip(uid)
+
+    msg = ""
+    exp_gain = 0
+
+    if pet:
+        pid,n,r,l,a,c,b = pet
+
+        coin += a * 100
+        coin = int(coin * (1 + b))
+
+        exp_gain = {
+            "C": 20,
+            "B": 40,
+            "A": 80,
+            "S": 150,
+            "SS": 300,
+            "SSS": 600,
+            "UR": 2000
+        }.get(r, 10)
+
+        add_exp(pid, exp_gain)
+
+        if random.random() < c:
+            coin *= 2
+            msg += "💥 CRIT!\n"
+
+        msg += f"🐾 {r} {n} Lv{l}\n📈 EXP +{exp_gain}\n"
+
+    if GOLD_EVENT:
+        coin *= 3
+        msg += "🔥 EVENT\n"
+
+    q("UPDATE users SET coin=coin+? WHERE id=?", (coin, uid))
+    drop(uid)
+
+    await update.message.reply_text(f"⚔️ 사냥 완료\n💰 {coin}\n{msg}", reply_markup=menu())
+
+# =========================
+# PET LIST
+# =========================
+async def pets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    rows = q("SELECT name,rarity,level,atk,exp,equipped FROM pets WHERE user_id=?", (uid,), True)
+
+    text = "🐾 인벤토리\n\n"
+    for n,r,l,a,ex,e in rows:
+        mark = "⚔️" if e else ""
+        text += f"{r} {n} Lv{l} EXP:{ex} {mark}\n"
+
+    await update.message.reply_text(text, reply_markup=menu())
+
+# =========================
+# RANKING (2종)
+# =========================
+async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    top = q("""
+    SELECT u.name,u.coin,p.rarity,p.level,p.name
+    FROM users u
+    LEFT JOIN pets p ON u.id=p.user_id AND p.equipped=1
+    ORDER BY u.coin DESC LIMIT 10
+    """, (), True)
+
+    text = "🏆 랭킹 TOP10\n\n"
+    i=1
+    for n,c,r,l,pn in top:
+        text += f"{i}. {n} 💰{c}\n🐾 {r or 'NONE'} {pn or '-'} Lv{l or 0}\n\n"
+        i+=1
+
+    await update.message.reply_text(text, reply_markup=menu())
+
+# =========================
+# MARKET (FULL MMO)
+# =========================
+async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rows = q("""
+    SELECT m.id,p.name,p.rarity,p.level,m.price
+    FROM market m
+    JOIN pets p ON p.id=m.pet_id
+    WHERE m.status='ON'
+    """, (), True)
+
+    text="🏛️ 거래소\n\n"
+    kb=[]
+
+    for mid,n,r,l,p in rows:
+        text += f"[{mid}] {r} {n} Lv{l} 💰{p}\n"
+        kb.append([InlineKeyboardButton(f"구매 {mid}", callback_data=f"buy_{mid}")])
+
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb))
+
+# =========================
+# EQUIP TOGGLE
+# =========================
+async def cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    qy = update.callback_query
+    await qy.answer()
+
+    pid = int(qy.data.split("_")[1])
+    uid = qy.from_user.id
+
+    now = q("SELECT equipped FROM pets WHERE id=?", (pid,), True)[0][0]
+
+    if now:
+        q("UPDATE pets SET equipped=0 WHERE id=?", (pid,))
+        await qy.edit_message_text("해제")
         return
 
-    kb=[
-        [InlineKeyboardButton("💰 코인지급",callback_data="admin_coin")],
-        [InlineKeyboardButton("📢 공지발송",callback_data="admin_notice")]
-    ]
-    await update.message.reply_text("👑 관리자모드",reply_markup=InlineKeyboardMarkup(kb))
+    q("UPDATE pets SET equipped=0 WHERE user_id=?", (uid,))
+    q("UPDATE pets SET equipped=1 WHERE id=?", (pid,))
 
-# ------------------ 기능 ------------------
-async def hunt(update:Update,context):
-    uid=update.effective_user.id
-    get_user(uid)
-    coin=random.randint(100,500)
-    update_coin(uid,coin)
-    give_pet(uid)
-    await update.message.reply_text(f"사냥 완료 +{coin}")
+    await qy.edit_message_text("장착 완료")
 
-async def bag(update:Update,context):
-    uid=update.effective_user.id
-    db.execute("SELECT coin FROM users WHERE id=?", (uid,))
-    coin=db.fetchone()[0]
-
-    db.execute("SELECT name,level,rarity,is_equipped FROM pets WHERE user_id=?", (uid,))
-    rows=db.fetchall()
-
-    txt=f"💰 {coin}\n\n"
-    for r in rows[:20]:
-        mark="⚔️" if r[3] else ""
-        txt+=f"{r[0]} Lv{r[1]} [{r[2]}]{mark}\n"
-
-    await update.message.reply_text(txt)
-
-async def pets(update:Update,context):
-    uid=update.effective_user.id
-    db.execute("SELECT id,name,level,is_equipped FROM pets WHERE user_id=?", (uid,))
-    rows=db.fetchall()
-
-    btn=[]
-    for r in rows:
-        mark="⚔️" if r[3] else ""
-        btn.append([InlineKeyboardButton(f"{r[1]} Lv{r[2]} {mark}",callback_data=f"pet_{r[0]}")])
-
-    await update.message.reply_text("영수목록",reply_markup=InlineKeyboardMarkup(btn))
-
-async def shop(update:Update,context):
-    btn=[
-        [InlineKeyboardButton("무료 소환",callback_data="shop_free")]
-    ]
-    await update.message.reply_text("상점",reply_markup=InlineKeyboardMarkup(btn))
-
-async def market(update:Update,context):
-    db.execute("""
-    SELECT m.id,p.name,p.level,m.price
-    FROM market m JOIN pets p ON m.pet_id=p.id
-    """)
-    rows=db.fetchall()
-
-    txt="거래소\n"
-    btn=[]
-
-    for r in rows:
-        txt+=f"{r[1]} Lv{r[2]} {r[3]}\n"
-        btn.append([InlineKeyboardButton("구매",callback_data=f"buy_{r[0]}")])
-
-    await update.message.reply_text(txt,reply_markup=InlineKeyboardMarkup(btn))
-
-async def ranking(update:Update,context):
-    db.execute("SELECT id,coin FROM users ORDER BY coin DESC LIMIT 10")
-    rows=db.fetchall()
-
-    txt="🏆 랭킹\n"
-    for i,r in enumerate(rows,1):
-        txt+=f"{i}위 {r[1]}\n"
-
-    await update.message.reply_text(txt)
-
-async def notice(update:Update,context):
-    btn=[[InlineKeyboardButton("공지 이동",url=NOTICE_URL)]]
-    await update.message.reply_text("공지",reply_markup=InlineKeyboardMarkup(btn))
-
-# ------------------ 콜백 ------------------
-async def callback(update:Update,context):
-    q=update.callback_query
-    await q.answer()
-    uid=q.from_user.id
-    data=q.data
-
-    if data=="shop_free":
-        give_pet(uid)
-        await q.edit_message_text("영수 획득")
-
-    elif data.startswith("pet_"):
-        pid=int(data.split("_")[1])
-        btn=[
-            [InlineKeyboardButton("장착",callback_data=f"equip_{pid}")],
-            [InlineKeyboardButton("판매",callback_data=f"sell_{pid}")]
-        ]
-        await q.edit_message_text("선택",reply_markup=InlineKeyboardMarkup(btn))
-
-    elif data.startswith("equip_"):
-        pid=int(data.split("_")[1])
-        equip_pet(uid,pid)
-        await q.edit_message_text("장착 완료")
-
-    elif data.startswith("sell_"):
-        pid=int(data.split("_")[1])
-        sell_state[uid]=pid
-        await q.edit_message_text("가격 입력")
-
-    elif data.startswith("buy_"):
-        mid=int(data.split("_")[1])
-        db.execute("SELECT seller_id,pet_id,price FROM market WHERE id=?", (mid,))
-        m=db.fetchone()
-        if not m: return
-
-        seller,pid,price=m
-
-        db.execute("SELECT coin FROM users WHERE id=?", (uid,))
-        coin=db.fetchone()[0]
-        if coin < price:
-            await q.answer("코인 부족",show_alert=True)
-            return
-
-        update_coin(uid,-price)
-        update_coin(seller,price)
-
-        db.execute("UPDATE pets SET user_id=? WHERE id=?", (uid,pid))
-        db.execute("DELETE FROM market WHERE id=?", (mid,))
-        conn.commit()
-
-        await q.edit_message_text("구매 완료")
-
-# ------------------ 가격 입력 ------------------
-async def sell_price(update:Update,context):
-    uid=update.effective_user.id
-
-    if uid not in sell_state:
-        return
-
-    try:
-        price=int(update.message.text)
-    except:
-        return
-
-    pid=sell_state.pop(uid)
-    db.execute("INSERT INTO market (seller_id,pet_id,price) VALUES (?,?,?)",(uid,pid,price))
-    conn.commit()
-
-    await update.message.reply_text("거래소 등록 완료")
-
-# ------------------ 실행 ------------------
+# =========================
+# MAIN
+# =========================
 def main():
     threading.Thread(target=run_flask, daemon=True).start()
 
-    app = Application.builder().token(TOKEN).build()
+    bot = Application.builder().token(TOKEN).build()
 
-    app.add_handler(MessageHandler(filters.Regex("^\.가입$"), register))
-    app.add_handler(MessageHandler(filters.Regex("^\.메뉴$"), menu))
-    app.add_handler(MessageHandler(filters.Regex("^\.관리자모드$"), admin))
+    bot.add_handler(MessageHandler(filters.Regex("^⚔️ 사냥터$"), hunt))
+    bot.add_handler(MessageHandler(filters.Regex("^🐾 영수목록$"), pets))
+    bot.add_handler(MessageHandler(filters.Regex("^🏆 랭킹$"), rank))
+    bot.add_handler(MessageHandler(filters.Regex("^🏛️ 거래소$"), market))
 
-    app.add_handler(MessageHandler(filters.Regex("^⚔️ 사냥$"), hunt))
-    app.add_handler(MessageHandler(filters.Regex("^🎒 가방$"), bag))
-    app.add_handler(MessageHandler(filters.Regex("^🐾 영수목록$"), pets))
-    app.add_handler(MessageHandler(filters.Regex("^🏪 상점$"), shop))
-    app.add_handler(MessageHandler(filters.Regex("^🏛️ 거래소$"), market))
-    app.add_handler(MessageHandler(filters.Regex("^🏆 랭킹$"), ranking))
-    app.add_handler(MessageHandler(filters.Regex("^📢 공지$"), notice))
+    bot.add_handler(CallbackQueryHandler(cb, pattern="^pet_|^buy_"))
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, sell_price))
-    app.add_handler(CallbackQueryHandler(callback))
-
-    print("RUNNING")
-    app.run_polling()
+    bot.run_polling()
 
 if __name__ == "__main__":
     main()
